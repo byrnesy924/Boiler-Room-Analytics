@@ -41,13 +41,16 @@ class LiveTrackListPage():
         track_artist = track_info.find('span', class_="artist")
         track_name = track_info.find('span', class_="title")
 
-        # return {"Number": self.regex_remove_tags.sub("", track_number),
-        #         "Artist": self.regex_remove_tags.sub("",track_artist),
-        #         "TrackName": self.regex_remove_tags.sub("",track_name)
-        #         }
-        return {"Number":  track_number.text,
-                "Artist": track_artist.text,
-                "TrackName": track_name.text
+        if track_number is not None:
+            track_number = track_number.text
+        if track_artist is not None:
+            track_artist = track_artist.text
+        if track_name is not None:
+            track_name = track_name.text
+
+        return {"Number":  track_number,
+                "Artist": track_artist,
+                "TrackName": track_name
                 }
 
     def get_formatted_table_of_tracks(self):
@@ -121,6 +124,6 @@ if __name__ == "__main__":
 
     df = create_db_of_tracklists(boiler_rooms)
 
-    df.to_clipboard("boiler_room_set_lists.csv")
+    df.to_csv("boiler_room_set_lists.csv")
 
 
