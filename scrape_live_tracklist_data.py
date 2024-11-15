@@ -116,7 +116,7 @@ def create_db_of_tracklists(br_urls: list):
     with Pool(processes=4) as pool:
         dfs = pool.map(multiprocessing_wrapper, br_urls)
 
-    return pd.concat(dfs, axis=1)
+    return pd.concat(dfs)
 
 
 if __name__ == "__main__":
@@ -124,6 +124,6 @@ if __name__ == "__main__":
 
     df = create_db_of_tracklists(boiler_rooms)
 
-    df.to_csv("boiler_room_set_lists.csv")
+    df.to_csv("live_tracklist_set_lists.csv", index=False)
 
 
