@@ -23,7 +23,7 @@ class OneThousandOneTrackListPage():
         self.response = requests.get(url=self.base_url + url, headers=headers)  # move into function and pass into object
 
         if self.response.status_code == 200:
-            with open("1001_tracklist_htmls/" + set_name + ".txt", "w") as data:
+            with open("1001_tracklist_htmls/" + set_name.replace("/", "") + ".txt", "w", errors="replace") as data:
                 # 1001 tracklist doesnt always play ball with lots of requests, so save locally
                 data.write(self.response.text)
                 html_text = self.response.text
@@ -33,6 +33,7 @@ class OneThousandOneTrackListPage():
             # would be much better to write this asynchronously but I'm trying to move fast TODO
             sleep(10)
             self.response = requests.get(url=self.base_url + url, headers=headers)
+            html_text = self.response.text
         else:
             logging.warning(f"Received a failed status code: {self.response.status_code}\n\n {self.response.text}")
             try:
@@ -40,6 +41,7 @@ class OneThousandOneTrackListPage():
                     html_text = data.read()
             except FileNotFoundError:
                 logging.exception(f"Response caused failure as file doesnt exist:\n\n{set_name}\n\n{self.response}")
+                return
 
         self.soup = BeautifulSoup(html_text, 'html.parser')
         self.regex_remove_tags = re.compile(r"<[^>]*>")
@@ -53,7 +55,7 @@ class OneThousandOneTrackListPage():
         regex_get_date = re.compile("[0-9]{4}\-[0-9]{2}\-[0-9]{2}")
 
         url_finish = regex_get_url_finish.sub("", url)
-        return regex_get_date.findall(url_finish)
+        return regex_get_date.findall(url_finish)[0]  # assume that first date is correct
     
     def find_track_data(self, soup):
         """Get list of tracks from html soup"""
@@ -76,6 +78,7 @@ class OneThousandOneTrackListPage():
 
     def get_set_information(self) -> pd.DataFrame:
         "main API function to get a pandas dataframe of info"
+        if # TODO if self.soup doesnt exist then return an Exceptipn
         tracks = self.find_track_data(self.soup)
         date = self.get_date_from_set_name(url=self.url)
 
@@ -125,7 +128,7 @@ def get_urls_for_boiler_rooms(headers: str):
 
 def multiprocessing_wrapper(set: dict, headers: dict):
     headers["path"] = set["url"]
-    return OneThousandOneTrackListPage(url=set["url"], set_name=set["Set"], headers=headers, dj=set["DJ"])
+    return OneThousandOneTrackListPage(url=set["url"], set_name=set["Set"], headers=headers, dj=set["DJ"]).get_set_information()
 
 
 def create_db_of_tracklists(br_urls: list, headers: dict):
@@ -153,6 +156,7 @@ if __name__ == "__main__":
         raise Exception("Sets is empty - request and load failed")
 
     # df = create_db_of_tracklists(br_urls=sets, headers=headers)
-    dfs = [multiprocessing_wrapper]
+    dfs = [multiprocessing_wrapper(set=br_set, headers=headers) for br_set in sets]
+    df = pd.concat(dfs)
 
-    df.to_csv("live_tracklist_set_lists.csv", index=False)
+    df.to_csv("1001_tracklist_set_lists.csv", index=False)
