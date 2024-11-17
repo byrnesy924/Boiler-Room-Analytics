@@ -78,7 +78,11 @@ class OneThousandOneTrackListPage():
 
     def get_set_information(self) -> pd.DataFrame:
         "main API function to get a pandas dataframe of info"
-        if # TODO if self.soup doesnt exist then return an Exceptipn
+        if not hasattr(self, "soup"):
+            logging.warning(f"No soup for this object - likely the get request failed.\n set: {self.url}\nResponse:\n{self.response}")
+            print(f"No soup for this object - likely the get request failed.\n set: {self.url}\nResponse:\n{self.response}")
+            return None
+
         tracks = self.find_track_data(self.soup)
         date = self.get_date_from_set_name(url=self.url)
 
@@ -87,7 +91,6 @@ class OneThousandOneTrackListPage():
         df["Date"] = date
 
         return df
-
 
 def get_urls_for_boiler_rooms(headers: str):
     regex_matcher = re.compile("boiler\-room|boiler|room")
