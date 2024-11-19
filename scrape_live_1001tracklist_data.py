@@ -1,13 +1,14 @@
+import os
 import re
 import requests
 import pandas as pd
 import logging
 from multiprocessing import Pool
 from time import sleep
-from xml.etree import ElementTree
 from bs4 import BeautifulSoup
 
-logger = logging.basicConfig(filename='1001Tracklist.log', level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename='scrape_live_1001tracklist_data.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode="w")
 
 # using https://www.1001tracklists.com/source/gpcruv/boiler-room/index.html
 # and the site map
@@ -20,28 +21,38 @@ class OneThousandOneTrackListPage():
     def __init__(self, url: str, headers: dict, set_name: str, dj: str):
         self.base_url = "https://www.1001tracklists.com/"
         self.url = url
-        self.response = requests.get(url=self.base_url + url, headers=headers)  # move into function and pass into object
 
-        if self.response.status_code == 200:
-            with open("1001_tracklist_htmls/" + set_name.replace("/", "") + ".txt", "w", errors="replace") as data:
-                # 1001 tracklist doesnt always play ball with lots of requests, so save locally
-                data.write(self.response.text)
-                html_text = self.response.text
-        elif self.response.status_code == 429:
-            # terrible way to quickly get around 429 - just pause and continue later.
-            # because this is multiprocessing this will block one of the processes, but the others can proceed
-            # would be much better to write this asynchronously but I'm trying to move fast TODO
-            sleep(10)
-            self.response = requests.get(url=self.base_url + url, headers=headers)
-            html_text = self.response.text
-        else:
-            logging.warning(f"Received a failed status code: {self.response.status_code}\n\n {self.response.text}")
+        # 17 November - if found locally, then load locally, otherwise use response
+        if os.path.isfile("1001_tracklist_htmls/" + set_name + ".html"):
             try:
-                with open(set_name + ".txt", "r") as data:
+                with open("1001_tracklist_htmls/" + set_name + ".html", "r", errors="replace") as data:
                     html_text = data.read()
             except FileNotFoundError:
-                logging.exception(f"Response caused failure as file doesnt exist:\n\n{set_name}\n\n{self.response}")
+                logger.exception(f"Response caused failure as file doesnt exist:\n\n{set_name}")
                 return
+        else:
+            # Otherwise, send request
+            # do this way as 1001 tracklists is liable to give 403s or 429s for many requests
+            self.response = requests.get(url=self.base_url + url, headers=headers)  # move into function and pass into object
+
+            # Good status code - save data
+            if self.response.status_code == 200:
+                with open("1001_tracklist_htmls/" + set_name.replace("/", "") + ".html", "w", errors="replace") as data:
+                    # 1001 tracklist doesnt always play ball with lots of requests, so save locally
+                    data.write(self.response.text)
+                    html_text = self.response.text
+                logger.info(f"Sucessful DL and write of html for: {set_name}")
+            elif self.response.status_code == 429:
+                # terrible way to quickly get around 429 - just pause and continue later.
+                # because this is multiprocessing this will block one of the processes, but the others can proceed
+                # would be much better to write this asynchronously but I'm trying to move fast TODO
+                sleep(10)
+                self.response = requests.get(url=self.base_url + url, headers=headers)
+                html_text = self.response.text
+                logger.warning(f"429 Error time out for: {set_name}; Response on retry:{self.response.status_code}")
+            else:
+                logger.exception(f"Received a failed status code for {set_name}: {self.response.status_code}")
+                html_text = ""  # TODO handle this correctly
 
         self.soup = BeautifulSoup(html_text, 'html.parser')
         self.regex_remove_tags = re.compile(r"<[^>]*>")
@@ -51,12 +62,12 @@ class OneThousandOneTrackListPage():
 
     def get_date_from_set_name(self, url):
         """On 1001 setlists generally the date is in the url at the end. Use regex to get the date"""
-        regex_get_url_finish = re.compile("(.*\/)*")
-        regex_get_date = re.compile("[0-9]{4}\-[0-9]{2}\-[0-9]{2}")
+        regex_get_url_finish = re.compile(r"(.*\/)*")
+        regex_get_date = re.compile(r"[0-9]{4}\-[0-9]{2}\-[0-9]{2}")
 
         url_finish = regex_get_url_finish.sub("", url)
         return regex_get_date.findall(url_finish)[0]  # assume that first date is correct
-    
+
     def find_track_data(self, soup):
         """Get list of tracks from html soup"""
 
@@ -79,8 +90,8 @@ class OneThousandOneTrackListPage():
     def get_set_information(self) -> pd.DataFrame:
         "main API function to get a pandas dataframe of info"
         if not hasattr(self, "soup"):
-            logging.warning(f"No soup for this object - likely the get request failed.\n set: {self.url}\nResponse:\n{self.response}")
-            print(f"No soup for this object - likely the get request failed.\n set: {self.url}\nResponse:\n{self.response}")
+            logger.warning(f"No soup for this object - likely the get request failed.\n set: {self.url}\nResponse code:\n{self.response.status_code}")
+            print(f"No soup for this object - likely the get request failed.\n set: {self.url}\nResponse code:\n{self.response.status_code}")
             return None
 
         tracks = self.find_track_data(self.soup)
@@ -92,8 +103,9 @@ class OneThousandOneTrackListPage():
 
         return df
 
+
 def get_urls_for_boiler_rooms(headers: str):
-    regex_matcher = re.compile("boiler\-room|boiler|room")
+    # regex_matcher = re.compile("boiler\-room|boiler|room")
 
     # Get html of index page
     site_map_url = "https://www.1001tracklists.com/source/gpcruv/boiler-room/index.html"
@@ -106,7 +118,7 @@ def get_urls_for_boiler_rooms(headers: str):
     else:
         # 1001 tracklists was not playing ball with requests - saved index manually
         logging.warning(f"Request failed! Request dump:{site_map_page_request}")
-        with open("1001Tracklist-BR-Index.html") as index_page:
+        with open("1001Tracklist-BR-Index.html",  errors="replace") as index_page:
             site_map_page_text = index_page.read()
 
     site_map_soup = BeautifulSoup(site_map_page_text, "html.parser")
@@ -119,7 +131,7 @@ def get_urls_for_boiler_rooms(headers: str):
 
     # TODO - validate that all have "Boiler Room" in the name
     # use regex to remove everything after the @ - before is DJ name
-    regex_isolate_artist = re.compile("\s\@.*")
+    regex_isolate_artist = re.compile(r"\s\@.*")
     # format into
     br_sets = [{"DJ": regex_isolate_artist.sub("", link.get_text()),
                 "url": link.get("href"),
@@ -131,6 +143,7 @@ def get_urls_for_boiler_rooms(headers: str):
 
 def multiprocessing_wrapper(set: dict, headers: dict):
     headers["path"] = set["url"]
+    sleep(3)
     return OneThousandOneTrackListPage(url=set["url"], set_name=set["Set"], headers=headers, dj=set["DJ"]).get_set_information()
 
 
@@ -155,6 +168,8 @@ if __name__ == "__main__":
     }
 
     sets = get_urls_for_boiler_rooms(headers=headers)
+    logger.info(f"Number of sets found:{len(sets)}")
+    logger.info(f"Sets to do:{sets}")
     if len(sets) == 0:
         raise Exception("Sets is empty - request and load failed")
 
