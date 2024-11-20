@@ -1,7 +1,7 @@
 import pandas as pd
 import re
 from matplotlib import pyplot as plt
-from rapidfuzz import ratio
+from rapidfuzz import fuzz
 
 
 def identify_remix_or_edit(track_name):
@@ -17,7 +17,6 @@ def regression_check_cleaning(df_start: pd.DataFrame, df_end: pd.DataFrame):
     condition = df_start.notnull() & df_end.isnull()
     return df_start.loc[condition.any(axis=1), :]
 
-
 if __name__=="__main__":
     df = pd.read_csv("1001_tracklist_set_lists.csv")
     raw_df = df.copy()
@@ -31,42 +30,47 @@ if __name__=="__main__":
     # String process of artists
     # ?-Ziq --> Mu-Zic; ?Ztek -> AZtek; ?kkord --> Akkord; Ã˜ [Phase] --> Ø [Phase]; --> Rødhåd; Ã‚me --> Ame; Ã…re:gone --> Åre:gone
     # Ã…MRTÃœM --> ÅMRTÜM; Ã…NTÃ†GÃ˜NIST --> ÅNTÆGØNIST
+    # May not be necessary...
+    print(pd.unique(df["Artist"].sort_values()))
     manual_artists_to_clean = [("?-Ziq", "Mu-Ziq"), ("?Ztek", "AZtek"), ("?kkord", "Akkord"), ("Ã˜ [Phase]", "Ø [Phase]"),
                                ("RÃ¸dhÃ¥d", "Rødhåd"), ("Ã‚me" "Ame"), ("Ã…re:gone", "Åre:gone"),
-                               ("Ã…MRTÃœM", "ÅMRTÜM"), ("Ã…NTÃ†GÃ˜NIST", "ÅNTÆGØNIST"), ("ÃŽÂ¼-Ziq", "Mu-Ziq")]
+                               ("Ã…MRTÃœM", "ÅMRTÜM"), ("Ã…NTÃ†GÃ˜NIST", "ÅNTÆGØNIST"), ("ÃŽÂ¼-Ziq", "Mu-Ziq"), ("Î¼-Ziq", "Mu-Ziq")]
     for artist_tup in manual_artists_to_clean:
         df["Artist"] = df["Artist"].str.replace(artist_tup[0], artist_tup[1])
         df["DJ"] = df["DJ"].str.replace(artist_tup[0], artist_tup[1])
 
     # Split out the artist column for colabs
     tokenized_artists = df["Artist"].str.split(r"\s\&\s", expand=True, regex=True)
-    tokenized_artists.columns = [f"Artist{i}" for i in len(tokenized_artists.columns)]
+    tokenized_artists.columns = [f"Artist{i}" for i in range(len(tokenized_artists.columns))]
     for col in tokenized_artists.columns:
         tokenized_artists[col] = tokenized_artists[col].str.strip()
         tokenized_artists[col] = tokenized_artists[col].str.replace(r"\s+", " ", regex=True)
-    df = df.merge(tokenized_artists)
+    df = df.merge(tokenized_artists, left_index=True, right_index=True)
 
     # Split B2B
     b2b = df["DJ"].str.split(r"\s\&\s|\sand\s\|\sAnd\s|\sB2B\s|\sb2b\s", expand=True, regex=True)
-    b2b.columns = [f"DJ{i}" for i in len(b2b.columns)]
+    b2b.columns = [f"DJ{i}" for i in range(len(b2b.columns))]
     for col in b2b.columns:
         b2b[col] = b2b[col].str.strip()
         b2b[col] = b2b[col].str.replace(r"\s+", " ", regex=True)
-    df = df.merge(b2b)
+    df = df.merge(b2b, left_index=True, right_index=True)
 
-    df["RemixOrEdit"] = df["TrackName"].str.extractall("\(.*\)")
-    df["RemixOrEdit"] = df["RemixOrEdit"].str.replace("remix|\(|\)|edit|bootleg|Version", "", case=False)
+    df["RemixOrEdit"] = df["TrackName"].str.extract(r"\((.*?)\)", expand=False)
+    df["RemixOrEdit"] = df["RemixOrEdit"].str.replace("(Remix)|(\()|(\))|(Edit)|(bootleg)|(Version)", "", case=False)
     multi_remix = df["RemixOrEdit"].str.split(r"\s\&\s|\sand\s|\sAnd\s", expand=True, regex=True)
-    multi_remix.columns = [f"Artist{i}" for i in len(tokenized_artists.columns)]
+    multi_remix.columns = [f"Artist{i}" for i in range(len(multi_remix.columns))]
     for col in multi_remix.columns:
         multi_remix[col] = multi_remix[col].str.strip()
         multi_remix[col] = multi_remix[col].str.replace(r"\s+", " ", regex=True)
-    df = df.merge(multi_remix)
+    df = df.merge(multi_remix, left_index=True, right_index=True)
     
     for col in df:
+        if col == "Number":
+            continue
         df[col] = df[col].str.replace("\?(?!ME)", "", regex=True)  # Replace all "?" except for ?ME, that's a legit artist
 
     print(regression_check_cleaning(df_start=raw_df, df_end=df))
+    df.to_csv("cleaned_br_data.csv", encoding="utf-8")
 
     # TODO
     list_of_artists = pd.unique(pd.concat(df["Artist"], df["Artist2"]), df["DJ"], df["RemixOrEdit"])  # TODO change Artist 2 to second col for B2B
@@ -81,7 +85,7 @@ if __name__=="__main__":
     # Numpy Cartesian join of
     product_of_artists = list_of_artists.merge(list_of_artists, how="cross")  # TODO check column names
     product_of_artists = product_of_artists.where(product_of_artists["Artist"] != product_of_artists["Artist2"])  # remove exact matches
-    product_of_artists["StringSimilarity"] = product_of_artists.apply(lambda x: ratio(x["Artist"], x["Artist2"]))
+    product_of_artists["StringSimilarity"] = product_of_artists.apply(lambda x: fuzz.ratio(x["Artist"], x["Artist2"]))
     threshold = 85
     merge_artist = product_of_artists.where(product_of_artists["StringSimilarity"] > threshold)
     
