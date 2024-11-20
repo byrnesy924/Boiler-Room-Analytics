@@ -191,4 +191,4 @@ if __name__ == "__main__":
     dfs = [multiprocessing_wrapper(set=br_set, headers=headers) for br_set in sets]
     df = pd.concat(dfs)
 
-    df.to_csv("1001_tracklist_set_lists.csv", index=False, encoding="utf-32")
+    df.to_csv("1001_tracklist_set_lists.", index=False, encoding="utf-8")
