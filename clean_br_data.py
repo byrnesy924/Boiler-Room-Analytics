@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import re
 from matplotlib import pyplot as plt
@@ -16,6 +17,7 @@ def regression_check_cleaning(df_start: pd.DataFrame, df_end: pd.DataFrame):
     df_end = df_end[df_start.columns]  # only check matching columns
     condition = df_start.notnull() & df_end.isnull()
     return df_start.loc[condition.any(axis=1), :]
+
 
 if __name__=="__main__":
     df = pd.read_csv("1001_tracklist_set_lists.csv")
@@ -58,7 +60,7 @@ if __name__=="__main__":
     df["RemixOrEdit"] = df["TrackName"].str.extract(r"\((.*?)\)", expand=False)
     df["RemixOrEdit"] = df["RemixOrEdit"].str.replace("(Remix)|(\()|(\))|(Edit)|(bootleg)|(Version)", "", case=False)
     multi_remix = df["RemixOrEdit"].str.split(r"\s\&\s|\sand\s|\sAnd\s", expand=True, regex=True)
-    multi_remix.columns = [f"Artist{i}" for i in range(len(multi_remix.columns))]
+    multi_remix.columns = [f"RemixOrEdit{i}" for i in range(len(multi_remix.columns))]
     for col in multi_remix.columns:
         multi_remix[col] = multi_remix[col].str.strip()
         multi_remix[col] = multi_remix[col].str.replace(r"\s+", " ", regex=True)
@@ -67,14 +69,15 @@ if __name__=="__main__":
     for col in df:
         if col == "Number":
             continue
-        df[col] = df[col].str.replace("\?(?!ME)", "", regex=True)  # Replace all "?" except for ?ME, that's a legit artist
+        df[col] = df[col].str.replace("\?(?!ME)|(^ID$)|(^Id$)", "", regex=True)  # Replace all "?" and ID/Id except for ?ME, that's a legit artist
 
     print(regression_check_cleaning(df_start=raw_df, df_end=df))
     df.to_csv("cleaned_br_data.csv", encoding="utf-8")
 
     # TODO
-    list_of_artists = pd.unique(pd.concat(df["Artist"], df["Artist2"]), df["DJ"], df["RemixOrEdit"])  # TODO change Artist 2 to second col for B2B
-   
+    artist_cols = df.filter(regex=r"(DJ\d*)|(RemixOrEdit\d*)|(Artist\d*)")
+
+    list_of_artists: np.ndarray = pd.unique(artist_cols.stack())
     # Approach for cleaning artist names:
     # This is a static, point in time database. It is enough to get a similarity score for all pairs of artists
     # then to evaluate a cutoff point of similarity score and merge all above the threshold
@@ -82,23 +85,52 @@ if __name__=="__main__":
     # If ever repeating the task if downloading data, this can be repeated
     # and hopefully because the data is taken Beatport (what I currently suspect) there shouldnt be too many issues (except maybe remixes...)
 
-    # Numpy Cartesian join of
-    product_of_artists = list_of_artists.merge(list_of_artists, how="cross")  # TODO check column names
-    product_of_artists = product_of_artists.where(product_of_artists["Artist"] != product_of_artists["Artist2"])  # remove exact matches
-    product_of_artists["StringSimilarity"] = product_of_artists.apply(lambda x: fuzz.ratio(x["Artist"], x["Artist2"]))
-    threshold = 85
-    merge_artist = product_of_artists.where(product_of_artists["StringSimilarity"] > threshold)
-    
-    fig, ax = plt.subplots(figsize=(20, 20))
+    # Numpy Cartesian product of artists
+    cartesian_sorted = np.sort(np.array(np.meshgrid(list_of_artists, list_of_artists)).T.reshape(-1, 2), axis=1)
+    intermediary_df = pd.DataFrame(
+        cartesian_sorted,
+        columns=["Artist1", "Artist2"]
+    )
+    # convert to df - Combinations column is tuples of Arist 1 and Artist 2. Note it is a sorted tuple
+    intermediary_df["Combinations"] = intermediary_df.apply(lambda x: (x["Artist1"], x["Artist2"]), axis=1)
+    # remove duplicates (halves dataframe size)
+    product_of_artists = pd.DataFrame(pd.unique(intermediary_df["Combinations"]).tolist(), columns=["Artist1", "Artist2"])
+
+    # remove exact pairs
+    product_of_artists = product_of_artists.loc[product_of_artists["Artist1"] != product_of_artists["Artist2"], :]  # remove exact matches
+    # calc string similarity of all pairs of artists
+    product_of_artists["StringSimilarity"] = product_of_artists.apply(lambda x: fuzz.ratio(x["Artist1"], x["Artist2"]), axis=1)
+    threshold = 80
+    merge_artist = product_of_artists.loc[product_of_artists["StringSimilarity"] > threshold, :]
+
+    fig, ax = plt.subplots(figsize=(40, 40))
     ax.axvline(threshold, color='red', linestyle='--', linewidth=2)
     ax.set_title("Histogram of Values")
+    ax.set_yscale('log')  # to try elucidate the taile
     ax.set_xlabel("Value")
     ax.set_ylabel("Frequency")
-    product_of_artists["StringSimilarity"].hist(ax=ax)  # would be nice to show the threshold line
+    product_of_artists["StringSimilarity"].hist(ax=ax, bins=30)  # would be nice to show the threshold line
     plt.show()
+    fig.savefig("histogram_of_similarity_values.png")
+
+    fig_tail, ax_tail = plt.subplots(figsize=(40, 40))
+    ax.axvline(threshold, color='red', linestyle='--', linewidth=2)
+    ax_tail.set_title("Tail of Histogram of Values")
+    ax_tail.set_yscale('log')  # to try elucidate the taile
+    ax_tail.set_xlabel("Value")
+    ax_tail.set_ylabel("Frequency")
+    product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, "StringSimilarity"].hist(ax=ax_tail, bins=30)  # would be nice to show the threshold line
+    plt.show()
+    fig_tail.savefig("tail_of_histogram.png")
+
+    product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, :].to_csv("FuzzyMatching.csv")
 
     # Then apply merges onto datasets
+    final_df = df.copy()
+    for col in artist_cols:
+        final_df[col] = final_df[col].map(merge_artist[["Artist1", "Artist2"]].to_dict())
 
+    final_df.to_csv("cleaned_boiler_room_data.csv", encoding="utf-16")
     # number of missing genres - whether it is worth getting these from the beatport API
     print(df.isnull().sum())
 
