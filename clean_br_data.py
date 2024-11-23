@@ -3,7 +3,7 @@ import pandas as pd
 import re
 from matplotlib import pyplot as plt
 from rapidfuzz import fuzz
-
+from time import perf_counter
 
 def identify_remix_or_edit(track_name):
     """Superseded by pandas str functions"""
@@ -58,7 +58,8 @@ if __name__=="__main__":
     df = df.merge(b2b, left_index=True, right_index=True)
 
     df["RemixOrEdit"] = df["TrackName"].str.extract(r"\((.*?)\)", expand=False)
-    df["RemixOrEdit"] = df["RemixOrEdit"].str.replace("(Remix)|(\()|(\))|(Edit)|(bootleg)|(Version)", "", case=False)
+    df["RemixOrEdit"] = df["RemixOrEdit"].str.replace("(Remix)|(\()|(\))|(Edit)|(bootleg)|(Version)", "", case=False, regex=True)
+    df["RemixOrEdit"] = df["RemixOrEdit"].str.strip()
     multi_remix = df["RemixOrEdit"].str.split(r"\s\&\s|\sand\s|\sAnd\s", expand=True, regex=True)
     multi_remix.columns = [f"RemixOrEdit{i}" for i in range(len(multi_remix.columns))]
     for col in multi_remix.columns:
@@ -75,7 +76,8 @@ if __name__=="__main__":
     df.to_csv("cleaned_br_data.csv", encoding="utf-8")
 
     # TODO
-    artist_cols = df.filter(regex=r"(DJ\d*)|(RemixOrEdit\d*)|(Artist\d*)")
+    artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)")
+    all_artist_cols = df.filter(regex=r"(DJ\d*)|(RemixOrEdit\d*)|(Artist\d*)").columns
 
     list_of_artists: np.ndarray = pd.unique(artist_cols.stack())
     # Approach for cleaning artist names:
@@ -127,7 +129,7 @@ if __name__=="__main__":
 
     # Then apply merges onto datasets
     final_df = df.copy()
-    for col in artist_cols:
+    for col in all_artist_cols:
         final_df[col] = final_df[col].map(merge_artist[["Artist1", "Artist2"]].to_dict())
 
     final_df.to_csv("cleaned_boiler_room_data.csv", encoding="utf-16")
