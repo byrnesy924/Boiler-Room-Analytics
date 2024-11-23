@@ -19,7 +19,7 @@ def regression_check_cleaning(df_start: pd.DataFrame, df_end: pd.DataFrame):
     return df_start.loc[condition.any(axis=1), :]
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     df = pd.read_csv("1001_tracklist_set_lists.csv")
     raw_df = df.copy()
 
@@ -30,6 +30,7 @@ if __name__=="__main__":
     # From here we don't really care about the track name except to search beatport.
 
     # String process of artists
+    # Some are clearlly encoding errors - I have caught a few and manually adjusted them below
     # ?-Ziq --> Mu-Zic; ?Ztek -> AZtek; ?kkord --> Akkord; Ã˜ [Phase] --> Ø [Phase]; --> Rødhåd; Ã‚me --> Ame; Ã…re:gone --> Åre:gone
     # Ã…MRTÃœM --> ÅMRTÜM; Ã…NTÃ†GÃ˜NIST --> ÅNTÆGØNIST
     # May not be necessary...
@@ -58,7 +59,12 @@ if __name__=="__main__":
     df = df.merge(b2b, left_index=True, right_index=True)
 
     df["RemixOrEdit"] = df["TrackName"].str.extract(r"\((.*?)\)", expand=False)
-    df["RemixOrEdit"] = df["RemixOrEdit"].str.replace("(Remix)|(\()|(\))|(Edit)|(bootleg)|(Version)", "", case=False, regex=True)
+    df["RemixOrEdit"] = df["RemixOrEdit"].str.replace(
+        "(Remix)|(\()|(\))|(Edit)|(bootleg)|(Version)|(Vocal Mix)|(Mix)|(Instrumental Mix)|(Instrumental)|(Dub)",
+        "",
+        case=False,
+        regex=True
+    )
     df["RemixOrEdit"] = df["RemixOrEdit"].str.strip()
     multi_remix = df["RemixOrEdit"].str.split(r"\s\&\s|\sand\s|\sAnd\s", expand=True, regex=True)
     multi_remix.columns = [f"RemixOrEdit{i}" for i in range(len(multi_remix.columns))]
@@ -66,14 +72,14 @@ if __name__=="__main__":
         multi_remix[col] = multi_remix[col].str.strip()
         multi_remix[col] = multi_remix[col].str.replace(r"\s+", " ", regex=True)
     df = df.merge(multi_remix, left_index=True, right_index=True)
-    
+
     for col in df:
         if col == "Number":
             continue
         df[col] = df[col].str.replace("\?(?!ME)|(^ID$)|(^Id$)", "", regex=True)  # Replace all "?" and ID/Id except for ?ME, that's a legit artist
 
     print(regression_check_cleaning(df_start=raw_df, df_end=df))
-    df.to_csv("cleaned_br_data.csv", encoding="utf-8")
+    df.to_csv(r"Data\\preprocessed_br_data.csv", encoding="utf-8")
 
     # TODO
     artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)")
@@ -125,14 +131,14 @@ if __name__=="__main__":
     plt.show()
     fig_tail.savefig("tail_of_histogram.png")
 
-    product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, :].to_csv("FuzzyMatching.csv")
+    product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, :].to_csv(r"Data\\FuzzyMatching.csv")
 
     # Then apply merges onto datasets
     final_df = df.copy()
     for col in all_artist_cols:
         final_df[col] = final_df[col].map(merge_artist[["Artist1", "Artist2"]].to_dict())
 
-    final_df.to_csv("cleaned_boiler_room_data.csv", encoding="utf-16")
+    final_df.to_csv(r"Data\\cleaned_boiler_room_data.csv", encoding="utf-16")
     # number of missing genres - whether it is worth getting these from the beatport API
     print(df.isnull().sum())
 
