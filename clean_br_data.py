@@ -20,7 +20,7 @@ def regression_check_cleaning(df_start: pd.DataFrame, df_end: pd.DataFrame):
 
 
 if __name__ == "__main__":
-    df = pd.read_csv("1001_tracklist_set_lists.csv")
+    df = pd.read_csv(r"Data\1001_tracklist_set_lists.csv")
     raw_df = df.copy()
 
     # Remove artist from the track name - regex remove everything before "\-"
@@ -85,6 +85,7 @@ if __name__ == "__main__":
     artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)")
     all_artist_cols = df.filter(regex=r"(DJ\d*)|(RemixOrEdit\d*)|(Artist\d*)").columns
 
+    start = perf_counter()
     list_of_artists: np.ndarray = pd.unique(artist_cols.stack())
     # Approach for cleaning artist names:
     # This is a static, point in time database. It is enough to get a similarity score for all pairs of artists
@@ -111,6 +112,7 @@ if __name__ == "__main__":
     threshold = 80
     merge_artist = product_of_artists.loc[product_of_artists["StringSimilarity"] > threshold, :]
 
+    print(f"Took {(perf_counter() - start)/60}mins to do string similarity.")
     fig, ax = plt.subplots(figsize=(40, 40))
     ax.axvline(threshold, color='red', linestyle='--', linewidth=2)
     ax.set_title("Histogram of Values")
@@ -138,7 +140,9 @@ if __name__ == "__main__":
     for col in all_artist_cols:
         final_df[col] = final_df[col].map(merge_artist[["Artist1", "Artist2"]].to_dict())
 
-    final_df.to_csv(r"Data\\cleaned_boiler_room_data.csv", encoding="utf-16")
+    print(f"Took {(perf_counter() - start)/60}mins to do all of artist fuzzy matching.")
+    final_df.to_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8", index=False)  # TODO think about parquet
+    final_df.to_parquet(r"Data\cleaned_boiler_room_data.parquet", index=False)
     # number of missing genres - whether it is worth getting these from the beatport API
     print(df.isnull().sum())
 
