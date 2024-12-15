@@ -137,8 +137,10 @@ if __name__ == "__main__":
 
     # Then apply merges onto datasets
     final_df = df.copy()
-    for col in all_artist_cols:
-        final_df[col] = final_df[col].map(merge_artist[["Artist1", "Artist2"]].to_dict())
+    list_of_pairs = merge_artist[["Artist1", "Artist2"]].to_dict("split", index=False)["data"]
+    dict_of_pairs = {item[1]: item[0] for item in list_of_pairs}
+    for col in artist_cols.columns:
+        final_df[col] = final_df[col].map(lambda x: dict_of_pairs[x] if x in dict_of_pairs.keys() else x)
 
     print(f"Took {(perf_counter() - start)/60}mins to do all of artist fuzzy matching.")
     final_df.to_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8", index=False)  # TODO think about parquet

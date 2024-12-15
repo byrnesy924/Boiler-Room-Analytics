@@ -1,9 +1,16 @@
+import os
 import pandas as pd
 import graphistry
+from dotenv import load_dotenv
 
 # TODO look into using cuDF instead if speed becomes a barrier
+load_dotenv(".env")
+graphistry.register(api=3,
+                    server='hub.graphistry.com',
+                    username=os.getenv("GRAPHISTRY_USERNAME"),
+                    password=os.getenv("GRAPHISTRY_PASSWORD"))
 
-if __name__=="__main__":
+if __name__ == "__main__":
     # df = pd.read_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8")
     df = pd.read_parquet(r"Data\cleaned_boiler_room_data.parquet")
     artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)").columns
@@ -16,20 +23,40 @@ if __name__=="__main__":
                 # this isnt great code to read, but basically:
                 # store a df that is the Node 1 (col), Node 2 (second col), and all the track details
                 # drop any edges where either side is null.
-                list_of_edges.append(
-                    df[[col, second_col, "DJ", "Artist", "TrackName", "Genre"]].dropna(
+                sub_df = df[[col, second_col, "DJ", "Artist", "TrackName", "Genre", "RemixOrEdit", "Date"]].dropna(
                         subset=[col, second_col], how="any"
-                        ).copy().rename(
-                        {col: "Node1", second_col: "Node2"}  # rename cols
-                    )
-                )
+                        ).copy()
 
-    df_of_edges = pd.concat(list_of_edges)
+                sub_df = sub_df.rename(
+                        columns={col: "Node1", second_col: "Node2"}  # rename cols
+                    )
+                if not sub_df.empty:
+                    list_of_edges.append(sub_df)
+
+    # empty series warning indicated there were empty series in the list of edges - now remove above
+    df_of_edges = pd.concat(list_of_edges).reset_index()
     print(df_of_edges)
 
     # Graph analytics with graphistry
-    g = graphistry.edges(df, "Node1", "Node2")
-    g.plot()
+    g = graphistry.hypergraph(
+        df,
+
+        # Optional: Subset of columns to turn into nodes; defaults to all
+        entity_types=['DJ', 'Artist', "RemixOrEdit"],
+
+        # Optional: merge nodes when their IDs appear in multiple columns
+        # ... so replace nodes attackerIP::1.1.1.1 and victimIP::1.1.1.1
+        # ... with just one node ip::1.1.1.1
+        opts={
+            'CATEGORIES': {
+                'Artist': ['Artist', "RemixOrEdit"]
+            }
+        })
+    g_g = g['graph']
+    g_g.plot()
+
+    # TODO switch to Approach 1 in this: https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html
+    # rather than using a edge based approach
 
     # hg2 = graphistry.hypergraph(
     #     df,
