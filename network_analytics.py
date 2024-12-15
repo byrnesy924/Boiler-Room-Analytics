@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import graphistry
+import networkx as nx
 from dotenv import load_dotenv
 
 # TODO look into using cuDF instead if speed becomes a barrier
@@ -35,49 +36,22 @@ if __name__ == "__main__":
 
     # empty series warning indicated there were empty series in the list of edges - now remove above
     df_of_edges = pd.concat(list_of_edges).reset_index()
+    df_of_nodes = pd.DataFrame(pd.unique(pd.concat([df_of_edges["Node1"], df_of_edges["Node2"]], axis=0)), columns=["Node"])
+
+    # calculate communities using louvain algorithm and networx package
+    g_nx = nx.from_pandas_edgelist(df=df_of_edges, source="Node1", target="Node2") 
+    communities = nx.community.louvain_communities(g_nx)
+
+    for index, community in enumerate(communities):
+        # note most elegant but fastest way to assign communities
+        for node in community:
+            df_of_nodes.loc[df_of_nodes["Node"] == node, "Louvain_Community"] = index
+
     print(df_of_edges)
+    print(df_of_nodes)
 
     # Graph analytics with graphistry
-    g = graphistry.hypergraph(
-        df,
+    g = graphistry.edges(df_of_edges, "Node1", "Node2").nodes(df_of_nodes, "Node")
+    g.encode_point_color("Louvain_Community",  palette=['silver', 'maroon', '#FF99FF'], as_continuous=True).plot()
 
-        # Optional: Subset of columns to turn into nodes; defaults to all
-        entity_types=['DJ', 'Artist', "RemixOrEdit"],
-
-        # Optional: merge nodes when their IDs appear in multiple columns
-        # ... so replace nodes attackerIP::1.1.1.1 and victimIP::1.1.1.1
-        # ... with just one node ip::1.1.1.1
-        opts={
-            'CATEGORIES': {
-                'Artist': ['Artist', "RemixOrEdit"]
-            }
-        })
-    g_g = g['graph']
-    g_g.plot()
-
-    # TODO switch to Approach 1 in this: https://pygraphistry.readthedocs.io/en/latest/demos/for_analysis.html
-    # rather than using a edge based approach
-
-    # hg2 = graphistry.hypergraph(
-    #     df,
-    #     entity_types=['attackerIP', 'victimIP', 'victimPort', 'vulnName'],
-    #     direct=True,
-    #     opts={
-    #         # Optional: Without, creates edges that are all-to-all for each row
-    #         'EDGES': {
-    #             'attackerIP': ['victimIP', 'victimPort', 'vulnName'],
-    #             'victimPort': ['victimIP'],
-    #             'vulnName': ['victimIP']
-    #         },
-
-    #         # Optional: merge nodes when their IDs appear in multiple columns
-    #         # ... so replace nodes attackerIP::1.1.1.1 and victimIP::1.1.1.1
-    #         # ... with just one node ip::1.1.1.1
-    #         'CATEGORIES': {
-    #             'ip': ['attackerIP', 'victimIP']
-    #         }
-    #     })
-
-    # hg2_g = hg2['graph']
-    # hg2_g.plot()
 
