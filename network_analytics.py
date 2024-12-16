@@ -50,12 +50,17 @@ if __name__ == "__main__":
         # note most elegant but fastest way to assign communities
         for node in community:
             df_of_nodes.loc[df_of_nodes["Node"] == node, "Louvain_Community"] = index
+            df_of_nodes.loc[df_of_nodes["Node"] == node, "Community_size"] = len(community)
+
+            df_of_edges.loc[(df_of_edges["Node1"] == node) | (df_of_edges["Node2"] == node), "Louvain_Community"] = index
 
     print(df_of_edges)
     print(df_of_nodes)
 
+    # TODO - Natural language processing of genres for each community 
+
     # Graph analytics with graphistry
-    g = graphistry.edges(df_of_edges, "Node1", "Node2").nodes(df_of_nodes, "Node")
-    g.encode_point_color("Louvain_Community",  palette=['silver', 'maroon', '#FF99FF'], as_continuous=True).plot()
-
-
+    g = graphistry.edges(df_of_edges, "Node1", "Node2")\
+                  .nodes(df_of_nodes, "Node")\
+                  .encode_point_color("Louvain_Community",  palette=['silver', 'maroon', '#FF99FF'], as_continuous=True)
+    g.plot()
