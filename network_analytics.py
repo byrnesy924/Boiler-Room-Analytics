@@ -4,6 +4,10 @@ import graphistry
 import networkx as nx
 from dotenv import load_dotenv
 
+# Reading for community detection
+# https://arxiv.org/html/2309.11798v4; https://www.nature.com/articles/s41598-019-41695-z;
+# TODO - refactor with Leiden algo rather than Louvain - https://github.com/esclear/louvain-leiden/blob/main/community_detection/leiden.py
+
 # TODO look into using cuDF instead if speed becomes a barrier
 load_dotenv(".env")
 graphistry.register(api=3,
