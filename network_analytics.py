@@ -56,11 +56,18 @@ if __name__ == "__main__":
 
     print(df_of_edges)
     print(df_of_nodes)
+    print(df_of_edges.loc[df_of_edges["Genre"].notna(), "Genre"].value_counts())
 
     # TODO - Natural language processing of genres for each community 
-
+    
+    
+    colour_pallete = ['black', '#fdae6b', '#fee6ce']
     # Graph analytics with graphistry
     g = graphistry.edges(df_of_edges, "Node1", "Node2")\
                   .nodes(df_of_nodes, "Node")\
-                  .encode_point_color("Louvain_Community",  palette=['silver', 'maroon', '#FF99FF'], as_continuous=True)
+                  .encode_point_color("Louvain_Community",  palette=colour_pallete, as_continuous=True)\
+                  .encode_edge_color('Louvain_Community', palette=colour_pallete, as_continuous=True)\
+                  .layout_settings(bgcolor='white', point_hoverfontcolor='black', edge_hoverfontcolor='black')
+                  
     g.plot()
+
