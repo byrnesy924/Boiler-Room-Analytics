@@ -1,11 +1,62 @@
 # Script for getting genres from the Spotify or Discogs APIs
 import os
 import pandas as pd
+import re
 # import discogs_client
 import spotipy
+from rapidfuzz import fuzz
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
 
+
+def compare_spotify_return_result(track: str, artist: str, spotify_track: str, spotify_artist):
+    """Logic for deciding if a track from search is a match"""
+    # Hedge bets on artist - if its the right artist, then the genre is probably correct or pretty close
+    if spotify_artist == artist:
+        return True
+
+    # scrub any versions from track names - hedge again that genres of remixes will be comparible
+    remove_version = re.compile("\s\(.*\)")
+    track = remove_version.sub("", track)
+    spotify_track = remove_version.sub("", track)
+
+    # If average string distance ratio is above 60%, then take the match
+    if (fuzz.ratio(track, spotify_track) + fuzz.ratio(artist, spotify_artist))/2 > 0.6:
+        return True
+
+    return False
+
+
+def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
+    """Search Spotify API for the track ID. note artist needs to be sorted, concated with ,"""
+    # Search using this!! https://developer.spotify.com/documentation/web-api/reference/search
+    url_regex = re.compile(r"%s")
+    encoded_track_name = url_regex.sub("%20", track)
+    encoded_artist_name = url_regex.sub("%20", artist)
+    url = rf"track:{encoded_track_name}%20artist:{encoded_artist_name}"
+    test_search = sp.search(q=url, type="track", limit=3)
+
+    results = test_search["tracks"]["items"]
+
+    for result in results:
+        # concat artists from spotify together in same format as search song ID
+        artists = [artist["name"] for artist in result["artists"]]
+        artists = artists.sort()
+        if len(artists) > 1:
+            spotify_artist = ",".join(artists,) 
+        else:
+            spotify_artist = artists[0]
+
+        spotify_track_name = result["name"]
+
+        # If match based on match logic
+        if compare_spotify_return_result(track=track, 
+                                         artist=artist, 
+                                         spotify_track=spotify_track_name, 
+                                         spotify_artist=spotify_artist):
+            return result["id"]
+    # if no matches just return None
+    return None
 
 
 if __name__ == "__main__":
@@ -17,6 +68,17 @@ if __name__ == "__main__":
     scope = "user-library-read"
     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,
                                                    client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-                                                   client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")))
+                                                   client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
+                                                   redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI")))
 
+    df["formatted_artist_for_search"] = df.filter(regex="Artist\d").apply(lambda x: ",".join(x.list.sort()), axis=1)
 
+    print(test_search["tracks"])
+
+    # Note to self - dont do any ID artists or missing values
+
+    # Check levenstein distance with result is at least 80% average across artist and name
+
+    # get the ID of the song
+
+    # get the genre of the ID
