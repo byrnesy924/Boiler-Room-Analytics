@@ -59,6 +59,13 @@ def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
     return None
 
 
+def format_dataframe_artists_to_match_spotify(df_of_artist: pd.DataFrame) -> pd.Series:
+    df_of_artist["ListOfArtists"] = df_of_artist.apply(lambda x: x.to_list(), axis=1)
+    df_of_artist["ListOfArtists"] = df_of_artist["ListOfArtists"].apply(lambda x: [y for y in x if y is not None])
+    df_of_artist["ListOfArtists"] = df_of_artist["ListOfArtists"].apply(lambda x: sorted(x))
+    return df_of_artist["ListOfArtists"].str.join(",")
+
+
 if __name__ == "__main__":
     load_dotenv(".env")
 
@@ -71,9 +78,8 @@ if __name__ == "__main__":
                                                    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
                                                    redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI")))
 
-    df["formatted_artist_for_search"] = df.filter(regex="Artist\d").apply(lambda x: ",".join(x.list.sort()), axis=1)
+    df["ArtistForSearch"] = format_dataframe_artists_to_match_spotify(df.filter(regex="Artist\d"))
 
-    print(test_search["tracks"])
 
     # Note to self - dont do any ID artists or missing values
 
