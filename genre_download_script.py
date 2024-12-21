@@ -41,20 +41,22 @@ def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
     for result in results:
         # concat artists from spotify together in same format as search song ID
         artists = [artist["name"] for artist in result["artists"]]
-        artists = artists.sort()
+        artists = sorted(artists)
         if len(artists) > 1:
-            spotify_artist = ",".join(artists,) 
+            spotify_artist = ",".join(artists) 
         else:
             spotify_artist = artists[0]
 
         spotify_track_name = result["name"]
 
         # If match based on match logic
-        if compare_spotify_return_result(track=track, 
-                                         artist=artist, 
-                                         spotify_track=spotify_track_name, 
+        if compare_spotify_return_result(track=track,
+                                         artist=artist,
+                                         spotify_track=spotify_track_name,
                                          spotify_artist=spotify_artist):
-            return result["id"]
+            # Update - cant get genre of TRACK, need to get genre of ARTIST only which sucks
+            artist_IDs = [artist["id"] for artist in result["artists"]]
+            return artist_IDs
     # if no matches just return None
     return None
 
@@ -78,13 +80,13 @@ if __name__ == "__main__":
                                                    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
                                                    redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI")))
 
+    # Format multiple artists into alphabetical, concatenated with a comma (",")
     df["ArtistForSearch"] = format_dataframe_artists_to_match_spotify(df.filter(regex="Artist\d"))
 
-
-    # Note to self - dont do any ID artists or missing values
-
-    # Check levenstein distance with result is at least 80% average across artist and name
-
     # get the ID of the song
+    # dont do any ID artists or missing values, which appear as empty string after data formatting
+    df["ID"] = df.apply(lambda x: search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "", axis=1)
+
+    print(df["ID"])
 
     # get the genre of the ID
