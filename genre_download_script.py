@@ -63,7 +63,9 @@ def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
         else:
             print(f"Check this error! unkown: {e}")
             logger.error(f"Caught an error: {e}")
-        # Try refresh the OAth object
+            # Don't want to stop program - but I do want to manually check these.
+            # Currently, the analysis is point in time, i.e. the data doesn't change. It is worth reviewing all errors to improve approach
+            # In the future, to refresh, I don't think I will want to catch other errors - there is enough data for interesting insights
 
     # Process the results of the seach
     results = test_search["tracks"]["items"]
@@ -106,6 +108,35 @@ def get_artist_genres_from_ID(sp: spotipy.Spotify, artists: list[str]) -> list[s
         return None
     logger.info(f"Found {[sp.artist(id).__dict__ for id in artists]} for artists: {artists}")
     return [sp.artist(id)["genres"] for id in artists]
+
+
+def spotify_functional_flow(df: pd.DataFrame):
+    """Wrapper for the functionality that gets artist genres using the spotify package"""
+    load_dotenv(".env")
+
+    df = pd.read_parquet(r"Data\cleaned_boiler_room_data.parquet")
+
+    # Spotify OAth flow
+    scope = "user-library-read"
+    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,
+                                                   client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+                                                   client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
+                                                   redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
+                                                   open_browser=False,
+                                                   ), requests_timeout=10)
+
+    # Format multiple artists into alphabetical, concatenated with a comma (",")
+    df["ArtistForSearch"] = format_dataframe_artists_to_match_spotify(df.filter(regex=r"Artist\d"))
+
+    # get the ID of the song
+    # dont do any ID artists or missing values, which appear as empty string after data formatting
+    df["ArtistIDs"] = df.apply(
+        lambda x: search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "", axis=1
+        )
+
+    df["ArtistGenre"] = df.apply(lambda x: get_artist_genres_from_ID(sp, x["ArtistIDs"]), axis=1)
+
+    return df
 
 
 if __name__ == "__main__":
