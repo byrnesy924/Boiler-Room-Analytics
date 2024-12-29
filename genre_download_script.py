@@ -42,14 +42,30 @@ def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
     url = rf"track:{encoded_track_name}%20artist:{encoded_artist_name}"
     try:
         test_search = sp.search(q=url, type="track", limit=3)
-    except ReadTimeout:
+    except ReadTimeout as timeout:
+        # Ignore timeouts - assume that there is no data. Given the size of the data set this is no worry
         print(f"Timeout error.Data: {artist} - {track}")
-        logger.info(f"Timeout error for {artist} - {track}")
+        logger.error(f"Timeout error for {artist} - {track}. Error:\n {timeout}")
         return None
-    # except SpotifyException:
-    #     print("Check the spotify exception!")
-    #     # Try refresh the OAth object
+    except SpotifyException as e:
+        # Spotify errors are worth catching
+        # First catch is a 400 for a bad search URL - try remove track and just use artist to search
+        if e.http_status == 400 and e.code == -1:
+            try:
+                # The embedded try except try is unideal but rather than abstracting the search on just artist
+                # to a different function I have bodged the search just on artist here. The process is the same
+                # if another spotify error, catch, log, return None
+                url = rf"artist:{encoded_artist_name}"
+                test_search = sp.search(q=url, type="track", limit=3)
+            except SpotifyException as e_e:
+                logger.error(f"Double spotify search error for artist {artist} and track {track}. Errors:\n{e}\n{e_e}")
+                return None
+        else:
+            print(f"Check this error! unkown: {e}")
+            logger.error(f"Caught an error: {e}")
+        # Try refresh the OAth object
 
+    # Process the results of the seach
     results = test_search["tracks"]["items"]
 
     for result in results:
