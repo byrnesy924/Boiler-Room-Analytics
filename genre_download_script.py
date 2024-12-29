@@ -2,11 +2,17 @@
 import os
 import pandas as pd
 import re
+import logging
 # import discogs_client
 import spotipy
 from rapidfuzz import fuzz
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.exceptions import SpotifyException
 from dotenv import load_dotenv
+from requests.exceptions import ReadTimeout
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename='Spotify_genre_data.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode="w")
 
 
 def compare_spotify_return_result(track: str, artist: str, spotify_track: str, spotify_artist):
@@ -34,7 +40,15 @@ def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
     encoded_track_name = url_regex.sub("%20", track)
     encoded_artist_name = url_regex.sub("%20", artist)
     url = rf"track:{encoded_track_name}%20artist:{encoded_artist_name}"
-    test_search = sp.search(q=url, type="track", limit=3)
+    try:
+        test_search = sp.search(q=url, type="track", limit=3)
+    except ReadTimeout:
+        print(f"Timeout error.Data: {artist} - {track}")
+        logger.info(f"Timeout error for {artist} - {track}")
+        return None
+    # except SpotifyException:
+    #     print("Check the spotify exception!")
+    #     # Try refresh the OAth object
 
     results = test_search["tracks"]["items"]
 
@@ -43,7 +57,7 @@ def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
         artists = [artist["name"] for artist in result["artists"]]
         artists = sorted(artists)
         if len(artists) > 1:
-            spotify_artist = ",".join(artists) 
+            spotify_artist = ",".join(artists)
         else:
             spotify_artist = artists[0]
 
@@ -56,8 +70,10 @@ def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
                                          spotify_artist=spotify_artist):
             # Update - cant get genre of TRACK, need to get genre of ARTIST only which sucks
             artist_IDs = [artist["id"] for artist in result["artists"]]
+            logger.info(f"Retrieved artist ID {artist_IDs} for {artist}")
             return artist_IDs
     # if no matches just return None
+    logger.info(f"Found no artist for {artist}")
     return None
 
 
@@ -66,6 +82,14 @@ def format_dataframe_artists_to_match_spotify(df_of_artist: pd.DataFrame) -> pd.
     df_of_artist["ListOfArtists"] = df_of_artist["ListOfArtists"].apply(lambda x: [y for y in x if y is not None])
     df_of_artist["ListOfArtists"] = df_of_artist["ListOfArtists"].apply(lambda x: sorted(x))
     return df_of_artist["ListOfArtists"].str.join(",")
+
+
+def get_artist_genres_from_ID(sp: spotipy.Spotify, artists: list[str]) -> list[str]:
+    if artists == "":
+        logger.info("Artist was blank")
+        return None
+    logger.info(f"Found {[sp.artist(id).__dict__ for id in artists]} for artists: {artists}")
+    return [sp.artist(id)["genres"] for id in artists]
 
 
 if __name__ == "__main__":
@@ -78,15 +102,20 @@ if __name__ == "__main__":
     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,
                                                    client_id=os.getenv("SPOTIFY_CLIENT_ID"),
                                                    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-                                                   redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI")))
+                                                   redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
+                                                   open_browser=False,
+                                                   ), requests_timeout=10)
 
     # Format multiple artists into alphabetical, concatenated with a comma (",")
-    df["ArtistForSearch"] = format_dataframe_artists_to_match_spotify(df.filter(regex="Artist\d"))
+    df["ArtistForSearch"] = format_dataframe_artists_to_match_spotify(df.filter(regex=r"Artist\d"))
 
     # get the ID of the song
     # dont do any ID artists or missing values, which appear as empty string after data formatting
-    df["ID"] = df.apply(lambda x: search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "", axis=1)
+    df["ArtistIDs"] = df.apply(
+        lambda x: search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "", axis=1
+        )
 
-    print(df["ID"])
+    df["ArtistGenre"] = df.apply(lambda x: get_artist_genres_from_ID(sp, x["ArtistIDs"]), axis=1)
+    print(df["ArtistGenre"])
 
     # get the genre of the ID
