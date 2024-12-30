@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import re
 import logging
-# import discogs_client
+import discogs_client
 import spotipy
 from rapidfuzz import fuzz
 from spotipy.oauth2 import SpotifyOAuth
@@ -110,7 +110,7 @@ def get_artist_genres_from_ID(sp: spotipy.Spotify, artists: list[str]) -> list[s
     return [sp.artist(id)["genres"] for id in artists]
 
 
-def spotify_functional_flow(df: pd.DataFrame):
+def spotify_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
     """Wrapper for the functionality that gets artist genres using the spotify package"""
     load_dotenv(".env")
 
@@ -137,6 +137,20 @@ def spotify_functional_flow(df: pd.DataFrame):
     df["ArtistGenre"] = df.apply(lambda x: get_artist_genres_from_ID(sp, x["ArtistIDs"]), axis=1)
 
     return df
+
+
+def discogs_search_track_artist(artist: str, track: str, d: discogs_client.Client) -> list[str]:
+    # foo bar
+
+    results = d.search(track, artist=artist, type="release")
+    return
+
+
+def discogs_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
+    d = discogs_client.Client('ExampleApplication/0.1', user_token="my_user_token")
+    
+    
+
 
 
 if __name__ == "__main__":
