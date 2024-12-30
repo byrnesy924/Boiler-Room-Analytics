@@ -114,8 +114,6 @@ def spotify_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
     """Wrapper for the functionality that gets artist genres using the spotify package"""
     load_dotenv(".env")
 
-    df = pd.read_parquet(r"Data\cleaned_boiler_room_data.parquet")
-
     # Spotify OAth flow
     scope = "user-library-read"
     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,
@@ -140,43 +138,41 @@ def spotify_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def discogs_search_track_artist(artist: str, track: str, d: discogs_client.Client) -> list[str]:
+    """Wrapper function for searching and sifting through the results of discogs REST API"""
     # foo bar
 
     results = d.search(track, artist=artist, type="release")
+    return results
+
+
+def discogs_retrieve_genre(id: str) -> str | None:
+    """"""
     return
 
 
 def discogs_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
-    d = discogs_client.Client('ExampleApplication/0.1', user_token="my_user_token")
-    
-    
+    """"""
+    load_dotenv(".env")
 
+    
+    d = discogs_client.Client('Boiler_Room_Analytics/0.1', user_token=os.getenv("DISCOGS_USER_TOKEN"))
+
+    # IF require formatting of artist, then do so here
+    # Lorem Ipsum
+
+    # Search
+    df["DiscogsTrackID"] = df.loc[:, ["Artist", "TrackName"]].apply(
+        lambda x: discogs_search_track_artist(x["Artist"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "",
+        axis=1
+    )
+
+    # df["DiscogsGenre"] = 
 
 
 if __name__ == "__main__":
-    load_dotenv(".env")
 
     df = pd.read_parquet(r"Data\cleaned_boiler_room_data.parquet")
+    df = discogs_functional_flow(df=df)
 
-    # Spotify OAth flow
-    scope = "user-library-read"
-    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,
-                                                   client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-                                                   client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-                                                   redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
-                                                   open_browser=False,
-                                                   ), requests_timeout=10)
+    df = spotify_functional_flow(df=df)
 
-    # Format multiple artists into alphabetical, concatenated with a comma (",")
-    df["ArtistForSearch"] = format_dataframe_artists_to_match_spotify(df.filter(regex=r"Artist\d"))
-
-    # get the ID of the song
-    # dont do any ID artists or missing values, which appear as empty string after data formatting
-    df["ArtistIDs"] = df.apply(
-        lambda x: search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "", axis=1
-        )
-
-    df["ArtistGenre"] = df.apply(lambda x: get_artist_genres_from_ID(sp, x["ArtistIDs"]), axis=1)
-    print(df["ArtistGenre"])
-
-    # get the genre of the ID
