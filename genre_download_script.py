@@ -8,6 +8,7 @@ import spotipy
 from rapidfuzz import fuzz
 from spotipy.oauth2 import SpotifyOAuth
 from spotipy.exceptions import SpotifyException
+from discogs_client.models import Release
 from dotenv import load_dotenv
 from requests.exceptions import ReadTimeout
 
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(filename='Spotify_genre_data.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode="w")
 
 
-def compare_spotify_return_result(track: str, artist: str, spotify_track: str, spotify_artist):
+def compare_spotify_return_result(track: str, artist: str, spotify_track: str, spotify_artist) -> bool:
     """Logic for deciding if a track from search is a match"""
     # Hedge bets on artist - if its the right artist, then the genre is probably correct or pretty close
     if spotify_artist == artist:
@@ -24,7 +25,7 @@ def compare_spotify_return_result(track: str, artist: str, spotify_track: str, s
     # scrub any versions from track names - hedge again that genres of remixes will be comparible
     remove_version = re.compile("\s\(.*\)")
     track = remove_version.sub("", track)
-    spotify_track = remove_version.sub("", track)
+    spotify_track = remove_version.sub("", spotify_track)
 
     # If average string distance ratio is above 60%, then take the match
     if (fuzz.ratio(track, spotify_track) + fuzz.ratio(artist, spotify_artist))/2 > 0.6:
@@ -33,7 +34,7 @@ def compare_spotify_return_result(track: str, artist: str, spotify_track: str, s
     return False
 
 
-def search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
+def spotify_search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
     """Search Spotify API for the track ID. note artist needs to be sorted, concated with ,"""
     # Search using this!! https://developer.spotify.com/documentation/web-api/reference/search
     url_regex = re.compile(r"%s")
@@ -102,7 +103,7 @@ def format_dataframe_artists_to_match_spotify(df_of_artist: pd.DataFrame) -> pd.
     return df_of_artist["ListOfArtists"].str.join(",")
 
 
-def get_artist_genres_from_ID(sp: spotipy.Spotify, artists: list[str]) -> list[str]:
+def spotify_get_artist_genres_from_ID(sp: spotipy.Spotify, artists: list[str]) -> list[str]:
     if artists == "":
         logger.info("Artist was blank")
         return None
@@ -129,32 +130,54 @@ def spotify_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
     # get the ID of the song
     # dont do any ID artists or missing values, which appear as empty string after data formatting
     df["ArtistIDs"] = df.apply(
-        lambda x: search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "", axis=1
+        lambda x: spotify_search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "", axis=1
         )
 
-    df["ArtistGenre"] = df.apply(lambda x: get_artist_genres_from_ID(sp, x["ArtistIDs"]), axis=1)
+    df["ArtistGenre"] = df.apply(lambda x: spotify_get_artist_genres_from_ID(sp, x["ArtistIDs"]), axis=1)
 
     return df
 
 
+def discogs_evaluate_search_result(artist: str, track: str, release_result: Release) -> bool:
+    """"""
+    """Logic for deciding if a track from search is a match"""
+    # Hedge bets on artist - if its the right artist, then the genre is probably correct or pretty close
+    if release_result.artists_sort == artist:
+        # TODO check format of double artist
+        return True
+
+    # No scrub of remixes - Discogs has more exact results for obscure music; if its not there, its not there
+    # If average string distance ratio is above 60%, then take the match
+    if (fuzz.ratio(track, release_result.title) + fuzz.ratio(artist, release_result.artists_sort))/2 > 0.6:
+        return True
+
+    return False
+
+
 def discogs_search_track_artist(artist: str, track: str, d: discogs_client.Client) -> list[str]:
     """Wrapper function for searching and sifting through the results of discogs REST API"""
-    # foo bar
 
     results = d.search(track, artist=artist, type="release")
-    return results
+    # Bet - only do first page, I would rather faster with worse results at this stage given the volume of
+    # data and the nature of the NLP following
+    if len(results.page(1)) == 0:
+        logger.info(f"Discogs API returned no search for {artist} - {track}")
+        return None
 
-
-def discogs_retrieve_genre(id: str) -> str | None:
-    """"""
-    return
+    # Just do first page
+    for result in results.page(1):
+        # Approx 50 results per page
+        if discogs_evaluate_search_result(artist, track, result):
+            # If, by the logic in evaluate result, they are a match, return the genre
+            logger.info(f"Discogs APi found a match for {artist} - {track}: {result.artists_sort} - {result.title}")
+            return result.data["genre"]
+    return None
 
 
 def discogs_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
     """"""
     load_dotenv(".env")
 
-    
     d = discogs_client.Client('Boiler_Room_Analytics/0.1', user_token=os.getenv("DISCOGS_USER_TOKEN"))
 
     # IF require formatting of artist, then do so here
@@ -162,7 +185,7 @@ def discogs_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
 
     # Search
     df["DiscogsTrackID"] = df.loc[:, ["Artist", "TrackName"]].apply(
-        lambda x: discogs_search_track_artist(x["Artist"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "",
+        lambda x: discogs_search_track_artist(x["Artist"], x["TrackName"], d=d) if (x["TrackName"] != "" and x["Artist"] != "") else "",
         axis=1
     )
 
