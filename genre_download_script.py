@@ -149,6 +149,7 @@ def discogs_evaluate_search_result(artist: str, track: str, release_result: Rele
     # No scrub of remixes - Discogs has more exact results for obscure music; if its not there, its not there
     # If average string distance ratio is above 60%, then take the match
     if (fuzz.ratio(track, release_result.title) + fuzz.ratio(artist, release_result.artists_sort))/2 > 0.6:
+        logger.info(f"Fuzzy match found: {artist} - {track} and {release_result.artists_sort} - {release_result.title}")
         return True
 
     return False
@@ -161,7 +162,7 @@ def discogs_search_track_artist(artist: str, track: str, d: discogs_client.Clien
     # Bet - only do first page, I would rather faster with worse results at this stage given the volume of
     # data and the nature of the NLP following
     if len(results.page(1)) == 0:
-        logger.info(f"Discogs API returned no search for {artist} - {track}")
+        logger.warning(f"Discogs API did not return a valid search for {artist} - {track}")
         return None
 
     # Just do first page
@@ -170,7 +171,8 @@ def discogs_search_track_artist(artist: str, track: str, d: discogs_client.Clien
         if discogs_evaluate_search_result(artist, track, result):
             # If, by the logic in evaluate result, they are a match, return the genre
             logger.info(f"Discogs APi found a match for {artist} - {track}: {result.artists_sort} - {result.title}")
-            return result.data["genre"]
+            return result.genres
+    logger.warning(f"Didn't find a match for {artist} - {track}")
     return None
 
 
@@ -189,7 +191,7 @@ def discogs_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
         axis=1
     )
 
-    # df["DiscogsGenre"] = 
+    return df
 
 
 if __name__ == "__main__":
@@ -198,4 +200,6 @@ if __name__ == "__main__":
     df = discogs_functional_flow(df=df)
 
     df = spotify_functional_flow(df=df)
+
+    df.to_parquet(r"Data\cleaned_boiler_room_data_with_genre.parquet")
 
