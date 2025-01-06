@@ -123,7 +123,7 @@ if __name__ == "__main__":
     ax.set_ylabel("Frequency")
     product_of_artists["StringSimilarity"].hist(ax=ax, bins=30)  # would be nice to show the threshold line
     plt.show()
-    fig.savefig("histogram_of_similarity_values.png")
+    fig.savefig(r"Images\histogram_of_similarity_values.png")
 
     fig_tail, ax_tail = plt.subplots(figsize=(40, 40))
     ax.axvline(threshold, color='red', linestyle='--', linewidth=2)
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     ax_tail.set_ylabel("Frequency")
     product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, "StringSimilarity"].hist(ax=ax_tail, bins=30)  # would be nice to show the threshold line
     plt.show()
-    fig_tail.savefig("tail_of_histogram.png")
+    fig_tail.savefig(r"Images\tail_of_histogram.png")
 
     product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, :].to_csv(r"Data\\FuzzyMatching.csv")
 
