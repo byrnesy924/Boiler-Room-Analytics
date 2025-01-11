@@ -10,7 +10,7 @@ from time import perf_counter
 def identify_remix_or_edit(track_name):
     """Superseded by pandas str functions"""
     regex_get_remix = re.compile("\(.*\)")
-    regex_remove_edit = re.compile("remix|\(|\)|edit|Remix|Edit|bootleg|Bootleg")
+    # regex_remove_edit = re.compile("remix|\(|\)|edit|Remix|Edit|bootleg|Bootleg")
     return regex_get_remix.findall(track_name)
 
 
@@ -21,11 +21,8 @@ def regression_check_cleaning(df_start: pd.DataFrame, df_end: pd.DataFrame):
     return df_start.loc[condition.any(axis=1), :]
 
 
-if __name__ == "__main__":
-    df = pd.read_csv(r"Data\1001_tracklist_set_lists.csv")
-    raw_df = df.copy()
-
-    # Remove artist from the track name - regex remove everything before "\-"
+def clean_data(df: pd.DataFrame, save_visualisation: bool = True) -> pd.DataFrame:
+        # Remove artist from the track name - regex remove everything before "\-"
     df["TrackName"] = df["TrackName"].str.replace(r".*\-\s", "", regex=True)
     df["TrackName"] = df["TrackName"].str.strip()
     df["TrackName"] = df["TrackName"].str.replace(r'\s+', ' ', regex=True)
@@ -123,7 +120,8 @@ if __name__ == "__main__":
     ax.set_ylabel("Frequency")
     product_of_artists["StringSimilarity"].hist(ax=ax, bins=30)  # would be nice to show the threshold line
     plt.show()
-    fig.savefig(r"Images\histogram_of_similarity_values.png")
+    if save_visualisation:
+        fig.savefig(r"Images\histogram_of_similarity_values.png")
 
     fig_tail, ax_tail = plt.subplots(figsize=(40, 40))
     ax.axvline(threshold, color='red', linestyle='--', linewidth=2)
@@ -133,7 +131,8 @@ if __name__ == "__main__":
     ax_tail.set_ylabel("Frequency")
     product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, "StringSimilarity"].hist(ax=ax_tail, bins=30)  # would be nice to show the threshold line
     plt.show()
-    fig_tail.savefig(r"Images\tail_of_histogram.png")
+    if save_visualisation:
+        fig_tail.savefig(r"Images\tail_of_histogram.png")
 
     product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, :].to_csv(r"Data\\FuzzyMatching.csv")
 
@@ -145,11 +144,19 @@ if __name__ == "__main__":
         final_df[col] = final_df[col].map(lambda x: dict_of_pairs[x] if x in dict_of_pairs.keys() else x)
 
     print(f"Took {(perf_counter() - start)/60}mins to do all of artist fuzzy matching.")
-    final_df.to_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8", index=False)  # TODO think about parquet
+
+    return final_df
+
+
+if __name__ == "__main__":
+    df = pd.read_csv(r"Data\1001_tracklist_set_lists.csv")
+    raw_df = df.copy()
+
+    final_df = clean_data(raw_df, save_visualisation=True)
+
+    final_df.to_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8", index=False)
     final_df.to_parquet(r"Data\cleaned_boiler_room_data.parquet", index=False)
     # number of missing genres - whether it is worth getting these from the beatport API
     print(df.isnull().sum())
 
     # TODO at the end regression check anything that had data and now is empty
-
-

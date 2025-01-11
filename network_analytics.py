@@ -15,11 +15,8 @@ graphistry.register(api=3,
                     username=os.getenv("GRAPHISTRY_USERNAME"),
                     password=os.getenv("GRAPHISTRY_PASSWORD"))
 
-if __name__ == "__main__":
-    # df = pd.read_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8")
-    df = pd.read_parquet(r"Data\cleaned_boiler_room_data.parquet")
-    artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)").columns
 
+def create_edglist(df: pd.DataFrame, artist_cols: pd.Index) -> pd.DataFrame:
     # Create a list of edges which are artist to artist.
     list_of_edges = []  # Format - start - finish - DJ - artist - track name - genre
     for index, col in enumerate(artist_cols):
@@ -41,6 +38,16 @@ if __name__ == "__main__":
     # empty series warning indicated there were empty series in the list of edges - now remove above
     df_of_edges = pd.concat(list_of_edges).reset_index()
     df_of_nodes = pd.DataFrame(pd.unique(pd.concat([df_of_edges["Node1"], df_of_edges["Node2"]], axis=0)), columns=["Node"])
+
+    return df_of_edges, df_of_nodes
+
+
+if __name__ == "__main__":
+    # df = pd.read_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8")
+    df = pd.read_parquet(r"Data\cleaned_boiler_room_data.parquet")
+    artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)").columns
+
+    df_of_edges, df_of_nodes = create_edglist(df=df, artist_cols=artist_cols)
 
     # calculate communities using louvain algorithm and networx package
     g_nx = nx.from_pandas_edgelist(df=df_of_edges, source="Node1", target="Node2") 
