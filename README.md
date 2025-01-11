@@ -43,7 +43,7 @@ Given this was a relatively quick-and-dirty analysis mostly done for my interest
 > Note that as said above, the data quality is limited, both by the data quality upstream from 1001 Tracklists, and from these sources themselves.
 >
 > #### 4. Graph Aanlytics
-> 
+> I've used NetworkX for identifying the Louvain communities within the graph, and Graphistry for visualisation. In my experiences, graphistry can visualise large graphs better than most python specific graph analytics packages, although the aesthetic of Graphistry can be underwhelming. In the future, I want to attempt the viualisation again with Neo4J. 
 
 ## ToDo List
 - Perform genre data extraction from Spotify and Discogs (internet where I am is so bad I cannot maintain a connection for long enough)
@@ -51,6 +51,8 @@ Given this was a relatively quick-and-dirty analysis mostly done for my interest
 - design and perform NLP analysis for communities
 - intergate two analyses
 - Create a main.py to run all analysis
+- Experiment with the Leiden algo for community detection rather than Louvain
+- Re-implement the graph visualisation with Neo4J
 
 ## Running Locally
 
