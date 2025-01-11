@@ -30,16 +30,17 @@ To do so, I found an index page for Boiler Room sets on 1001 Tracklist. The func
 The [clean data script](clean_br_data.py) is not particularly elegant, and performs a few functions:
 - It performs some initial string cleaning and processing - fixing encoding errors, removing punctuation and words like Edit/Remix/Bootleg, and so on.
 - It also splits out all the artists/remixers etc. for a song. In the final analysis, all artists involved in a track being played (the DJ, the Artist(s), the Remixer(s)) will have an edge drawn between them. Doing this also aids in string cleaning
-- It then takes all the unique Artists (no matter what their envolvment) and performs a fuzzy matching exercise on all artists to all other artist. Any artists with more than an 80% string similarity are merged together
-I took the fuzzy matching approach to amend some of the data quality issues found in the 1001 tracklist data. Fuzzy matching is often not very precice (its in the name): setting the threshold too low will lead to completely different artists being merged together; setting it too high will limit how many true artists that should be merged will be merged.
-In this context, over-merging artists is a greater risk. This could lead to additional "bridge" connections between communities in the graph or incorrecet artists being placed into communities, which would make communitiy detection more difficult, less precise, and less accurate.
-I performed a brief analysis of the number/proportion of artists caught by 80% and did some manual review of the artists merged to validate the results (see [this file](Images/histogram_of_similarity_values.png) and [this file below]())
+- It then takes all the unique Artists (no matter what their envolvment) and performs a fuzzy matching exercise on all artists to all other artists. Any artist pairs with more than an 80% string similarity are merged together
+
+I took the fuzzy matching approach to amend some of the data quality issues found in the 1001 tracklist data. Fuzzy matching is often not very precise (hence the name): setting the threshold too low will lead to completely different artists being merged together; setting it too high will limit the number of merges for artists that should be merged. In other words, you must trade off false-positives and false-negatives.
+In this context, over-merging artists is a greater risk. This could lead to additional "bridge" connections between communities in the graph, or incorrect artists being placed into communities, which would make communitiy detection more difficult, less precise, and less accurate.
+I performed a brief analysis of the number/proportion of artists caught by the 80% threshold and did some manual review of the artists merged to validate the results (see [this file](Images/histogram_of_similarity_values.png) and [this file below]())
 
 [![Histogram of string similarity results for all combinations of artists](Images/histogram_of_similarity_values.png)](Images/histogram_of_similarity_values.png)
 [![The tail of the histogram for detailed analysis](Images/tail_of_histogram.png)](Images/tail_of_histogram.png)
 
 #### 3. Retrieve Genre data from Spotify and Discogs
-Both of these services have APIs for searching for tracks and retrieving data on those results. Both also have python packages for retrieving this data, which I have used: [Spotipy](https://github.com/spotipy-dev/spotipy) and [Discogs client](https://github.com/joalla/discogs_client). Very handy, and the documentation for these projects was easy enough to use.
+Both of these services have APIs for searching for tracks and retrieving data on those results. Both also have python packages for retrieving this data, which I have used: [Spotipy](https://github.com/spotipy-dev/spotipy) and [Discogs client](https://github.com/joalla/discogs_client). The documentation for these projects was easy enough to use.
 Note that as said above, the data quality is limited, both by the data quality upstream from 1001 Tracklists, and from these sources themselves.
 
 #### 4. Graph Aanlytics
