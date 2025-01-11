@@ -35,7 +35,7 @@ if __name__ == "__main__":
     # Some are clearlly encoding errors - I have caught a few and manually adjusted them below
     # ?-Ziq --> Mu-Zic; ?Ztek -> AZtek; ?kkord --> Akkord; Ã˜ [Phase] --> Ø [Phase]; --> Rødhåd; Ã‚me --> Ame; Ã…re:gone --> Åre:gone
     # Ã…MRTÃœM --> ÅMRTÜM; Ã…NTÃ†GÃ˜NIST --> ÅNTÆGØNIST
-    # May not be necessary...
+    # May not be necessary
     print(pd.unique(df["Artist"].sort_values()))
     manual_artists_to_clean = [("?-Ziq", "Mu-Ziq"), ("?Ztek", "AZtek"), ("?kkord", "Akkord"), ("Ã˜ [Phase]", "Ø [Phase]"),
                                ("RÃ¸dhÃ¥d", "Rødhåd"), ("Ã‚me" "Ame"), ("Ã…re:gone", "Åre:gone"),

@@ -1,4 +1,5 @@
 # Script for getting genres from the Spotify or Discogs APIs
+# use the "flow" functions in other scripts the way a utils.py normally works
 import os
 import pandas as pd
 import re
@@ -23,7 +24,7 @@ def compare_spotify_return_result(track: str, artist: str, spotify_track: str, s
         return True
 
     # scrub any versions from track names - hedge again that genres of remixes will be comparible
-    remove_version = re.compile("\s\(.*\)")
+    remove_version = re.compile(r"\s\(.*\)")
     track = remove_version.sub("", track)
     spotify_track = remove_version.sub("", spotify_track)
 
@@ -130,7 +131,8 @@ def spotify_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
     # get the ID of the song
     # dont do any ID artists or missing values, which appear as empty string after data formatting
     df["ArtistIDs"] = df.apply(
-        lambda x: spotify_search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "", axis=1
+        lambda x: spotify_search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "",
+        axis=1
         )
 
     df["ArtistGenre"] = df.apply(lambda x: spotify_get_artist_genres_from_ID(sp, x["ArtistIDs"]), axis=1)
@@ -202,4 +204,3 @@ if __name__ == "__main__":
     df = spotify_functional_flow(df=df)
 
     df.to_parquet(r"Data\cleaned_boiler_room_data_with_genre.parquet")
-

@@ -60,14 +60,16 @@ if __name__ == "__main__":
 
     # TODO - Natural language processing of genres for each community 
     
-    
     colour_pallete = ['black', '#fdae6b', '#fee6ce']
     # Graph analytics with graphistry
     g = graphistry.edges(df_of_edges, "Node1", "Node2")\
                   .nodes(df_of_nodes, "Node")\
                   .encode_point_color("Louvain_Community",  palette=colour_pallete, as_continuous=True)\
                   .encode_edge_color('Louvain_Community', palette=colour_pallete, as_continuous=True)\
-                  .layout_settings(bgcolor='white', point_hoverfontcolor='black', edge_hoverfontcolor='black')
+                  .encode_point_icon("Louvain_Community")\
+                  .scene_settings(menu=False, info=False, show_arrows=False, point_size=0.7, edge_curvature=0.0, edge_opacity=0.5, point_opacity=0.9)\
+                  .addStyle(bg={"color": 'white'})
                   
-    g.plot()
+    url = g.plot()
+    print(url)
 
