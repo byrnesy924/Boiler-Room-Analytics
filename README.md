@@ -46,13 +46,18 @@ Given this was a relatively quick-and-dirty analysis mostly done for my interest
 > I've used NetworkX for identifying the Louvain communities within the graph, and Graphistry for visualisation. In my experiences, graphistry can visualise large graphs better than most python specific graph analytics packages, although the aesthetic of Graphistry can be underwhelming. In the future, I want to attempt the viualisation again with Neo4J. 
 
 ## ToDo List
+- When internet is better take a screenshot of graph for README
 - Perform genre data extraction from Spotify and Discogs (internet where I am is so bad I cannot maintain a connection for long enough)
   - asses data quality, clean if necessary
 - design and perform NLP analysis for communities
 - intergate two analyses
-- Create a main.py to run all analysis
 - Experiment with the Leiden algo for community detection rather than Louvain
 - Re-implement the graph visualisation with Neo4J
 
 ## Running Locally
+Clone the repository and run
+```
+pip install requirements.txt
+python main.py
+```
 
