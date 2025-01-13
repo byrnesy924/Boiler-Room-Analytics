@@ -10,6 +10,9 @@ Click on the graphic below to check out and interact the network of artists
   </tr>
 </table>
 
+## Findings and Analysis
+TODO
+
 ## Data Source
 I scraped tracklist data from 1001 Tracklists - see the [code structure](#code-structure) below. 1001 Tracklists contains tracklist data from shows and DJ sets maintained by fans and listeners, and for sets played at Boiler Rooms goes back to 2010. Their website also uses a number of APIs (e.g. beatport) for track information. Given it is community maintained, data quality is *very patchy*, e.g., genres are often missing, Artists' spelling can change, and so on.
 
@@ -48,6 +51,7 @@ I've used NetworkX for identifying the Louvain communities within the graph, and
 
 ## ToDo List
 - When internet is better take a screenshot of graph for README
+- Summarise findings
 - Perform genre data extraction from Spotify and Discogs (internet where I am is so bad I cannot maintain a connection for long enough)
   - asses data quality, clean if necessary
 - design and perform NLP analysis for communities
