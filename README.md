@@ -51,7 +51,8 @@ I've used NetworkX for identifying the Louvain communities within the graph, and
 
 ## ToDo List
 - When internet is better take a screenshot of graph for README
-- Summarise findings
+- Summarise findings and analysis, preferably after the genre data and NLP analysis
+  - the aim is to mine out these communities and label them in a completely unsupervised manner
 - Perform genre data extraction from Spotify and Discogs (internet where I am is so bad I cannot maintain a connection for long enough)
   - asses data quality, clean if necessary
 - design and perform NLP analysis for communities
