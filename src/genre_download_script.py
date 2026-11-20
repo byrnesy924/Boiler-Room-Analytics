@@ -1,208 +1,352 @@
 # Script for getting genres from the Spotify or Discogs APIs
 # use the "flow" functions in other scripts the way a utils.py normally works
-import os
-import pandas as pd
-import re
+import json
 import logging
+import os
+import re
+import time
+from collections.abc import Iterable, MutableMapping
+from pathlib import Path
+
 import discogs_client
+import numpy as np
+import pandas as pd
 import spotipy
-from rapidfuzz import fuzz
-from spotipy.oauth2 import SpotifyOAuth
-from spotipy.exceptions import SpotifyException
+from discogs_client.exceptions import HTTPError as DiscogsHTTPError
 from discogs_client.models import Release
 from dotenv import load_dotenv
-from requests.exceptions import ReadTimeout
+from rapidfuzz import fuzz
+from requests.exceptions import ReadTimeout, RequestException
+from spotipy.exceptions import SpotifyException
+from spotipy.oauth2 import SpotifyOAuth
 
 from src.utils.data_loading import PATHS
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='Spotify_genre_data.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode="w")
+logging.basicConfig(
+    filename="Spotify_genre_data.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    filemode="w",
+)
+
+MATCH_THRESHOLD = 60  # mean fuzz.ratio (0-100) of track and artist needed to accept a result
+SPOTIFY_ARTIST_BATCH_SIZE = 50  # max IDs per sp.artists() call
+DISCOGS_MAX_RETRIES = 3
+DISCOGS_BACKOFF_SECONDS = 60  # Discogs allows ~60 authenticated requests per minute
 
 
-def compare_spotify_return_result(track: str, artist: str, spotify_track: str, spotify_artist) -> bool:
+class SearchError(Exception):
+    """A transient search failure (timeout, rate limit, server error). Never cached."""
+
+
+class JsonCache(dict):
+    """A dict that checkpoints itself to a JSON file every `save_every` writes."""
+
+    def __init__(self, path: Path | None, save_every: int = 25):
+        super().__init__()
+        self.path = path
+        self.save_every = save_every
+        self._unsaved = 0
+        if path is not None and path.exists():
+            self.update(json.loads(path.read_text(encoding="utf-8")))
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self._unsaved += 1
+        if self._unsaved >= self.save_every:
+            self.save()
+
+    def save(self) -> None:
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self.path)
+        self._unsaved = 0
+
+
+def pair_key(artist: str, track: str) -> str:
+    """Unambiguous string key for an (artist, track) pair."""
+    return json.dumps([artist, track], ensure_ascii=False)
+
+
+def _as_id_list(value) -> list[str] | None:
+    """Normalise an ArtistIDs cell (list, numpy array from parquet, None, "", NaN) to a list."""
+    if isinstance(value, list | tuple | np.ndarray) and len(value) > 0:
+        return list(value)
+    return None
+
+
+# --- Spotify ------------------------------------------------------------------------------------
+
+
+def compare_spotify_return_result(
+    track: str, artist: str, spotify_track: str, spotify_artist
+) -> bool:
     """Logic for deciding if a track from search is a match"""
-    # Hedge bets on artist - if its the right artist, then the genre is probably correct or pretty close
+    # Hedge bets on artist - if its the right artist, then the genre is probably correct or close
     if spotify_artist == artist:
         return True
 
-    # scrub any versions from track names - hedge again that genres of remixes will be comparible
+    # scrub any versions from track names - hedge again that genres of remixes will be comparable
     remove_version = re.compile(r"\s\(.*\)")
     track = remove_version.sub("", track)
     spotify_track = remove_version.sub("", spotify_track)
 
-    # If average string distance ratio is above 60%, then take the match
-    if (fuzz.ratio(track, spotify_track) + fuzz.ratio(artist, spotify_artist))/2 > 0.6:
-        return True
-
-    return False
+    mean_ratio = (fuzz.ratio(track, spotify_track) + fuzz.ratio(artist, spotify_artist)) / 2
+    return mean_ratio > MATCH_THRESHOLD
 
 
-def spotify_search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> str | None:
-    """Search Spotify API for the track ID. note artist needs to be sorted, concated with ,"""
-    # Search using this!! https://developer.spotify.com/documentation/web-api/reference/search
-    url_regex = re.compile(r"%s")
-    encoded_track_name = url_regex.sub("%20", track)
-    encoded_artist_name = url_regex.sub("%20", artist)
-    url = rf"track:{encoded_track_name}%20artist:{encoded_artist_name}"
+def _spotify_search_artist_ids(sp: spotipy.Spotify, artist: str, track: str) -> list[str] | None:
+    """Search Spotify for the track and return the matching result's artist IDs, or None if no
+    result matches. Raises SearchError on failures worth retrying on a later run."""
+    # https://developer.spotify.com/documentation/web-api/reference/search
+    # spotipy URL-encodes the query itself.
     try:
-        test_search = sp.search(q=url, type="track", limit=3)
+        search = sp.search(q=f"track:{track} artist:{artist}", type="track", limit=3)
     except ReadTimeout as timeout:
-        # Ignore timeouts - assume that there is no data. Given the size of the data set this is no worry
-        print(f"Timeout error.Data: {artist} - {track}")
         logger.error(f"Timeout error for {artist} - {track}. Error:\n {timeout}")
-        return None
+        raise SearchError from timeout
     except SpotifyException as e:
-        # Spotify errors are worth catching
-        # First catch is a 400 for a bad search URL - try remove track and just use artist to search
         if e.http_status == 400 and e.code == -1:
+            # Bad search query - retry searching on the artist only
             try:
-                # The embedded try except try is unideal but rather than abstracting the search on just artist
-                # to a different function I have bodged the search just on artist here. The process is the same
-                # if another spotify error, catch, log, return None
-                url = rf"artist:{encoded_artist_name}"
-                test_search = sp.search(q=url, type="track", limit=3)
-            except SpotifyException as e_e:
-                logger.error(f"Double spotify search error for artist {artist} and track {track}. Errors:\n{e}\n{e_e}")
-                return None
+                search = sp.search(q=f"artist:{artist}", type="track", limit=3)
+            except (SpotifyException, ReadTimeout) as e_e:
+                logger.error(f"Double spotify search error for {artist} - {track}:\n{e}\n{e_e}")
+                raise SearchError from e_e
         else:
-            print(f"Check this error! unkown: {e}")
-            logger.error(f"Caught an error: {e}")
-            # Don't want to stop program - but I do want to manually check these.
-            # Currently, the analysis is point in time, i.e. the data doesn't change. It is worth reviewing all errors to improve approach
-            # In the future, to refresh, I don't think I will want to catch other errors - there is enough data for interesting insights
+            logger.error(f"Spotify error for {artist} - {track}: {e}")
+            raise SearchError from e
 
-    # Process the results of the seach
-    results = test_search["tracks"]["items"]
-
-    for result in results:
-        # concat artists from spotify together in same format as search song ID
-        artists = [artist["name"] for artist in result["artists"]]
-        artists = sorted(artists)
-        if len(artists) > 1:
-            spotify_artist = ",".join(artists)
-        else:
-            spotify_artist = artists[0]
-
-        spotify_track_name = result["name"]
-
-        # If match based on match logic
-        if compare_spotify_return_result(track=track,
-                                         artist=artist,
-                                         spotify_track=spotify_track_name,
-                                         spotify_artist=spotify_artist):
-            # Update - cant get genre of TRACK, need to get genre of ARTIST only which sucks
-            artist_IDs = [artist["id"] for artist in result["artists"]]
-            logger.info(f"Retrieved artist ID {artist_IDs} for {artist}")
-            return artist_IDs
-    # if no matches just return None
+    for result in search["tracks"]["items"]:
+        # concat artists from spotify together in same format as ArtistForSearch
+        spotify_artist = ",".join(sorted(a["name"] for a in result["artists"]))
+        if compare_spotify_return_result(
+            track=track, artist=artist, spotify_track=result["name"], spotify_artist=spotify_artist
+        ):
+            # Spotify only exposes genres for ARTISTS, not tracks
+            artist_ids = [a["id"] for a in result["artists"]]
+            logger.info(f"Retrieved artist ID {artist_ids} for {artist}")
+            return artist_ids
     logger.info(f"Found no artist for {artist}")
     return None
 
 
+def spotify_search_song_ID(sp: spotipy.Spotify, artist: str, track: str) -> list[str] | None:
+    """Search Spotify for the track's artist IDs. Artist must be sorted and joined with ','.
+    Returns None on no match or on any search error."""
+    try:
+        return _spotify_search_artist_ids(sp, artist, track)
+    except SearchError:
+        return None
+
+
 def format_dataframe_artists_to_match_spotify(df_of_artist: pd.DataFrame) -> pd.Series:
     df_of_artist["ListOfArtists"] = df_of_artist.apply(lambda x: x.to_list(), axis=1)
-    df_of_artist["ListOfArtists"] = df_of_artist["ListOfArtists"].apply(lambda x: [y for y in x if y is not None])
+    df_of_artist["ListOfArtists"] = df_of_artist["ListOfArtists"].apply(
+        lambda x: [y for y in x if pd.notna(y)]
+    )
     df_of_artist["ListOfArtists"] = df_of_artist["ListOfArtists"].apply(lambda x: sorted(x))
     return df_of_artist["ListOfArtists"].str.join(",")
 
 
-def spotify_get_artist_genres_from_ID(sp: spotipy.Spotify, artists: list[str]) -> list[str]:
-    if artists == "":
-        logger.info("Artist was blank")
+def spotify_fetch_artist_genres(
+    sp: spotipy.Spotify, artist_ids: Iterable[str], genre_cache: MutableMapping[str, list[str]]
+) -> MutableMapping[str, list[str]]:
+    """Fetch genres for every artist ID not already in `genre_cache`, 50 IDs per request."""
+    missing = [i for i in dict.fromkeys(artist_ids) if i not in genre_cache]
+    for start in range(0, len(missing), SPOTIFY_ARTIST_BATCH_SIZE):
+        batch = missing[start : start + SPOTIFY_ARTIST_BATCH_SIZE]
+        try:
+            response = sp.artists(batch)
+        except (SpotifyException, ReadTimeout) as e:
+            logger.error(f"Failed to fetch artists {batch}: {e}")
+            continue
+        for artist in response["artists"]:
+            if artist:  # Spotify returns null for unknown IDs
+                genre_cache[artist["id"]] = artist.get("genres", [])
+    return genre_cache
+
+
+def spotify_get_artist_genres_from_ID(
+    sp: spotipy.Spotify,
+    artists: list[str] | None,
+    genre_cache: MutableMapping[str, list[str]] | None = None,
+) -> list[list[str] | None] | None:
+    """Genres for each artist ID (positional; None where the lookup failed).
+    Returns None when there are no IDs."""
+    ids = _as_id_list(artists)
+    if ids is None:
         return None
-    logger.info(f"Found {[sp.artist(id).__dict__ for id in artists]} for artists: {artists}")
-    return [sp.artist(id)["genres"] for id in artists]
+    genre_cache = {} if genre_cache is None else genre_cache
+    spotify_fetch_artist_genres(sp, ids, genre_cache)
+    return [genre_cache.get(i) for i in ids]
 
 
-def spotify_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
-    """Wrapper for the functionality that gets artist genres using the spotify package"""
+def _spotify_client() -> spotipy.Spotify:
     load_dotenv(PATHS.env_file)
+    auth = SpotifyOAuth(
+        scope="user-library-read",
+        client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+        client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
+        redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
+        open_browser=False,
+    )
+    return spotipy.Spotify(auth_manager=auth, requests_timeout=10)
 
-    # Spotify OAth flow
-    scope = "user-library-read"
-    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,
-                                                   client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-                                                   client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-                                                   redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
-                                                   open_browser=False,
-                                                   ), requests_timeout=10)
+
+def spotify_functional_flow(
+    df: pd.DataFrame,
+    sp: spotipy.Spotify | None = None,
+    search_cache_path: Path | None = None,
+    genre_cache_path: Path | None = None,
+) -> pd.DataFrame:
+    """Get artist genres from Spotify. Searches once per unique (artist, track) pair and
+    checkpoints results to JSON so an interrupted run resumes where it stopped."""
+    sp = _spotify_client() if sp is None else sp
+    search_cache = JsonCache(search_cache_path or PATHS.processed.spotify_search_cache)
+    genre_cache = JsonCache(genre_cache_path or PATHS.processed.spotify_artist_genres_cache)
 
     # Format multiple artists into alphabetical, concatenated with a comma (",")
     df["ArtistForSearch"] = format_dataframe_artists_to_match_spotify(df.filter(regex=r"Artist\d"))
+    searchable = df["TrackName"].notna() & df["Artist"].notna() & (df["ArtistForSearch"] != "")
 
-    # get the ID of the song
-    # dont do any ID artists or missing values, which appear as empty string after data formatting
-    df["ArtistIDs"] = df.apply(
-        lambda x: spotify_search_song_ID(sp, x["ArtistForSearch"], x["TrackName"]) if (x["TrackName"] != "" and x["Artist"] != "") else "",
-        axis=1
-        )
+    pairs = df.loc[searchable, ["ArtistForSearch", "TrackName"]].drop_duplicates()
+    for artist, track in pairs.itertuples(index=False):
+        key = pair_key(artist, track)
+        if key in search_cache:
+            continue
+        try:
+            search_cache[key] = _spotify_search_artist_ids(sp, artist, track)
+        except SearchError:
+            pass  # not cached, so retried on the next run
+    search_cache.save()
 
-    df["ArtistGenre"] = df.apply(lambda x: spotify_get_artist_genres_from_ID(sp, x["ArtistIDs"]), axis=1)
+    df["ArtistIDs"] = [
+        search_cache.get(pair_key(a, t)) if s else None
+        for a, t, s in zip(df["ArtistForSearch"], df["TrackName"], searchable, strict=True)
+    ]
 
+    all_ids = [i for cell in df["ArtistIDs"] for i in (_as_id_list(cell) or [])]
+    spotify_fetch_artist_genres(sp, all_ids, genre_cache)
+    genre_cache.save()
+    df["ArtistGenre"] = df["ArtistIDs"].map(
+        lambda ids: spotify_get_artist_genres_from_ID(sp, ids, genre_cache)
+    )
     return df
 
 
+# --- Discogs ------------------------------------------------------------------------------------
+
+
 def discogs_evaluate_search_result(artist: str, track: str, release_result: Release) -> bool:
-    """"""
-    """Logic for deciding if a track from search is a match"""
-    # Hedge bets on artist - if its the right artist, then the genre is probably correct or pretty close
+    """Logic for deciding if a release from search is a match"""
+    # Hedge bets on artist - if its the right artist, then the genre is probably correct or close
     if release_result.artists_sort == artist:
         # TODO check format of double artist
         return True
 
-    # No scrub of remixes - Discogs has more exact results for obscure music; if its not there, its not there
-    # If average string distance ratio is above 60%, then take the match
-    if (fuzz.ratio(track, release_result.title) + fuzz.ratio(artist, release_result.artists_sort))/2 > 0.6:
-        logger.info(f"Fuzzy match found: {artist} - {track} and {release_result.artists_sort} - {release_result.title}")
+    # No scrub of remixes - Discogs has more exact results for obscure music
+    mean_ratio = (
+        fuzz.ratio(track, release_result.title) + fuzz.ratio(artist, release_result.artists_sort)
+    ) / 2
+    if mean_ratio > MATCH_THRESHOLD:
+        logger.info(
+            f"Fuzzy match found: {artist} - {track} and "
+            f"{release_result.artists_sort} - {release_result.title}"
+        )
         return True
-
     return False
 
 
-def discogs_search_track_artist(artist: str, track: str, d: discogs_client.Client) -> list[str]:
-    """Wrapper function for searching and sifting through the results of discogs REST API"""
+def _discogs_search_genres(
+    artist: str,
+    track: str,
+    d: discogs_client.Client,
+    max_retries: int = DISCOGS_MAX_RETRIES,
+    backoff_seconds: float = DISCOGS_BACKOFF_SECONDS,
+) -> list[str] | None:
+    """Genres of the first matching release, or None if nothing matches.
+    Retries on HTTP 429 with linear backoff; raises SearchError on other failures."""
+    for attempt in range(max_retries + 1):
+        try:
+            # Only the first page (~50 results): faster, and good enough for the NLP that follows
+            page = d.search(track, artist=artist, type="release").page(1)
+            if len(page) == 0:
+                logger.warning(f"Discogs API did not return a valid search for {artist} - {track}")
+                return None
+            for result in page:
+                if discogs_evaluate_search_result(artist, track, result):
+                    logger.info(
+                        f"Discogs found a match for {artist} - {track}: "
+                        f"{result.artists_sort} - {result.title}"
+                    )
+                    return list(result.genres)
+            logger.warning(f"Didn't find a match for {artist} - {track}")
+            return None
+        except DiscogsHTTPError as e:
+            if e.status_code == 429 and attempt < max_retries:
+                wait = backoff_seconds * (attempt + 1)
+                logger.warning(f"Discogs rate limit hit; sleeping {wait}s")
+                time.sleep(wait)
+                continue
+            logger.error(f"Discogs error for {artist} - {track}: {e}")
+            raise SearchError from e
+        except RequestException as e:
+            logger.error(f"Discogs request failed for {artist} - {track}: {e}")
+            raise SearchError from e
+    raise SearchError("unreachable")  # pragma: no cover
 
-    results = d.search(track, artist=artist, type="release")
-    # Bet - only do first page, I would rather faster with worse results at this stage given the volume of
-    # data and the nature of the NLP following
-    if len(results.page(1)) == 0:
-        logger.warning(f"Discogs API did not return a valid search for {artist} - {track}")
+
+def discogs_search_track_artist(artist: str, track: str, d: discogs_client.Client) -> list[str]:
+    """Genres of the first matching Discogs release; None on no match or any error."""
+    try:
+        return _discogs_search_genres(artist, track, d)
+    except SearchError:
         return None
 
-    # Just do first page
-    for result in results.page(1):
-        # Approx 50 results per page
-        if discogs_evaluate_search_result(artist, track, result):
-            # If, by the logic in evaluate result, they are a match, return the genre
-            logger.info(f"Discogs APi found a match for {artist} - {track}: {result.artists_sort} - {result.title}")
-            return result.genres
-    logger.warning(f"Didn't find a match for {artist} - {track}")
-    return None
 
-
-def discogs_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
-    """"""
+def _discogs_client() -> discogs_client.Client:
     load_dotenv(PATHS.env_file)
-
-    d =discogs_client.Client('Boiler_Room_Analytics/0.1', user_token=os.getenv("DISCOGS_USER_TOKEN"))
-
-    # IF require formatting of artist, then do so here
-    # Lorem Ipsum
-
-    # Search
-    df["DiscogsTrackID"] = df.loc[:, ["Artist", "TrackName"]].apply(
-        lambda x: discogs_search_track_artist(x["Artist"], x["TrackName"], d=d) if (x["TrackName"] != "" and x["Artist"] != "") else "",
-        axis=1
+    return discogs_client.Client(
+        "Boiler_Room_Analytics/0.1", user_token=os.getenv("DISCOGS_USER_TOKEN")
     )
 
+
+def discogs_functional_flow(
+    df: pd.DataFrame,
+    d: discogs_client.Client | None = None,
+    cache_path: Path | None = None,
+) -> pd.DataFrame:
+    """Get release genres from Discogs. Searches once per unique (artist, track) pair and
+    checkpoints results to JSON so an interrupted run resumes where it stopped."""
+    d = _discogs_client() if d is None else d
+    cache = JsonCache(cache_path or PATHS.processed.discogs_search_cache)
+
+    searchable = df["TrackName"].notna() & df["Artist"].notna()
+    pairs = df.loc[searchable, ["Artist", "TrackName"]].drop_duplicates()
+    for artist, track in pairs.itertuples(index=False):
+        key = pair_key(artist, track)
+        if key in cache:
+            continue
+        try:
+            cache[key] = _discogs_search_genres(artist, track, d)
+        except SearchError:
+            pass  # not cached, so retried on the next run
+    cache.save()
+
+    df["DiscogsGenres"] = [
+        cache.get(pair_key(a, t)) if s else None
+        for a, t, s in zip(df["Artist"], df["TrackName"], searchable, strict=True)
+    ]
     return df
 
 
 if __name__ == "__main__":
-
-    df = pd.read_parquet(PATHS.raw.cleaned_boiler_room_data_parquet)
+    df = pd.read_parquet(PATHS.processed.cleaned_boiler_room_data_parquet)
     df = discogs_functional_flow(df=df)
-
     df = spotify_functional_flow(df=df)
-
     df.to_parquet(PATHS.processed.cleaned_boiler_room_data_with_genre)
