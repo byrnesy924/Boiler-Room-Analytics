@@ -13,6 +13,8 @@ from discogs_client.models import Release
 from dotenv import load_dotenv
 from requests.exceptions import ReadTimeout
 
+from src.utils.data_loading import PATHS
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='Spotify_genre_data.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode="w")
 
@@ -114,7 +116,7 @@ def spotify_get_artist_genres_from_ID(sp: spotipy.Spotify, artists: list[str]) -
 
 def spotify_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
     """Wrapper for the functionality that gets artist genres using the spotify package"""
-    load_dotenv(".env")
+    load_dotenv(PATHS.env_file)
 
     # Spotify OAth flow
     scope = "user-library-read"
@@ -180,9 +182,9 @@ def discogs_search_track_artist(artist: str, track: str, d: discogs_client.Clien
 
 def discogs_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
     """"""
-    load_dotenv(".env")
+    load_dotenv(PATHS.env_file)
 
-    d = discogs_client.Client('Boiler_Room_Analytics/0.1', user_token=os.getenv("DISCOGS_USER_TOKEN"))
+    d =discogs_client.Client('Boiler_Room_Analytics/0.1', user_token=os.getenv("DISCOGS_USER_TOKEN"))
 
     # IF require formatting of artist, then do so here
     # Lorem Ipsum
@@ -198,9 +200,9 @@ def discogs_functional_flow(df: pd.DataFrame) -> pd.DataFrame:
 
 if __name__ == "__main__":
 
-    df = pd.read_parquet(r"Data\cleaned_boiler_room_data.parquet")
+    df = pd.read_parquet(PATHS.raw.cleaned_boiler_room_data_parquet)
     df = discogs_functional_flow(df=df)
 
     df = spotify_functional_flow(df=df)
 
-    df.to_parquet(r"Data\cleaned_boiler_room_data_with_genre.parquet")
+    df.to_parquet(PATHS.processed.cleaned_boiler_room_data_with_genre)

@@ -1,0 +1,35 @@
+{
+  "model": "sonnet",
+  "env": {
+    "BASH_MAX_OUTPUT_LENGTH": "8000"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv sync:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [
+      "Read(./Data/**)",
+      "Read(./data/**)",
+      "Read(./1001_tracklist_htmls/**)",
+      "Read(./**/*.html)",
+      "Read(./**/*.log)",
+      "Read(./**/*.parquet)",
+      "Read(./**/*.csv)",
+      "Read(./**/*.graphml)",
+      "Read(./**/*.gpickle)",
+      "Read(./**/*.ipynb)",
+      "Read(./uv.lock)",
+      "Read(./models/**)",
+      "Read(./.venv/**)",
+      "Read(./venv/**)",
+      "Read(./**/.ipynb_checkpoints/**)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  }
+}

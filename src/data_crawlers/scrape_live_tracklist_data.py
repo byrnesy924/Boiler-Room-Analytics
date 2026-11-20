@@ -5,6 +5,8 @@ from multiprocessing import Pool
 from xml.etree import ElementTree
 from bs4 import BeautifulSoup
 
+from src.utils.data_loading import PATHS
+
 
 # using https://www.livetracklist.com/source/boiler-room 
 # and the site map (https://www.livetracklist.com/sitemap-page-n.xml)
@@ -67,7 +69,7 @@ class LiveTrackListPage():
             return list_of_removed_tags[0]
 
         # if there is multiple, try use regex to find the date
-        regex_date = re.compile("(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s[0-9]{2}\,\s[0-9]{4}")
+        regex_date = re.compile(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s[0-9]{2}\,\s[0-9]{4}")
         for text_value in list_of_removed_tags:
             if regex_date.match(text_value):
                 return text_value
@@ -87,7 +89,7 @@ class LiveTrackListPage():
 
         
 def get_urls_for_boiler_rooms():
-    regex_matcher = re.compile("boiler\-room|boiler|room")
+    regex_matcher = re.compile(r"boiler\-room|boiler|room")
 
     boiler_room_urls = []
     for i in range(13):  # Hardcoded for point in time
@@ -124,6 +126,6 @@ if __name__ == "__main__":
 
     df = create_db_of_tracklists(boiler_rooms)
 
-    df.to_csv("live_tracklist_set_lists.csv", index=False)
+    df.to_csv(PATHS.raw.live_tracklist_set_lists, index=False)
 
 

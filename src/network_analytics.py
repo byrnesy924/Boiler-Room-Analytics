@@ -4,12 +4,14 @@ import graphistry
 import networkx as nx
 from dotenv import load_dotenv
 
+from src.utils.data_loading import PATHS
+
 # Reading for community detection
 # https://arxiv.org/html/2309.11798v4; https://www.nature.com/articles/s41598-019-41695-z;
 # TODO - refactor with Leiden algo rather than Louvain - https://github.com/esclear/louvain-leiden/blob/main/community_detection/leiden.py
 
 # TODO look into using cuDF instead if speed becomes a barrier
-load_dotenv(".env")
+load_dotenv(PATHS.env_file)
 graphistry.register(api=3,
                     server='hub.graphistry.com',
                     username=os.getenv("GRAPHISTRY_USERNAME"),
@@ -43,8 +45,8 @@ def create_edglist(df: pd.DataFrame, artist_cols: pd.Index) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    # df = pd.read_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8")
-    df = pd.read_parquet(r"Data\cleaned_boiler_room_data.parquet")
+    # df = pd.read_csv(PATHS.processed.cleaned_boiler_room_data_csv, encoding="utf-8")
+    df = pd.read_parquet(PATHS.raw.cleaned_boiler_room_data_parquet)
     artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)").columns
 
     df_of_edges, df_of_nodes = create_edglist(df=df, artist_cols=artist_cols)
