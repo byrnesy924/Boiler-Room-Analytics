@@ -10,6 +10,25 @@ Click on the graphic below to check out and interact the network of artists
   </tr>
 </table>
 
+# Tech Stack
+W.I.P as of 2026-11-20. Below is yet to be determined. In general, the goal is to do as much heavy lifting as possible offline and with the backend.
+
+**Front End and Graph Rendering**
+- Vite for front end build w/ Tailwind CSS
+- Graphology + Sigma.js for rending graph
+  - Alternative to use cosmos.gl if the graph grows in size
+
+**Back end cloud infrastructure**
+- S3, Lambda functions, AWS Glue or ECS Fargate
+  - As of 2026-11-20 this is all happening locally during development
+
+**GraphRAG Backend**
+- Lambda functions with DuckPGQ / DuckDB
+  - Potential to upgrade to Postgres backend
+  - Potential to upgrade to Neo4J for Graph QL; or Amazong Neptune; These are expensive alternatives
+- Amazon Bedrock; alterinative is open router or digital ocean route
+  - Opensearch is expensive --> may need to find an alternative for the RAG component
+
 ## Findings and Analysis
 TODO
 
@@ -52,6 +71,8 @@ The graph has one node per artist name and four typed, weighted edge types: `pla
 
 ## TODO List
 0. Set up Claude Code to improve speed of development
+    - Read and review Data Engineering skill
+    - Create front end engineer skill
 1. Create AWS Infrastructure to improve crawler and access to data
   - Add Mixmag crawler
   - Add Hoer crawler etc.
