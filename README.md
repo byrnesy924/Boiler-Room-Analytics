@@ -23,17 +23,17 @@ I also used Spotify's and Discogs' respective APIs to retrieve more genre data f
 
 ## Code structure
 Given this was a relatively quick-and-dirty analysis mostly done for my interest and a bit of novelty, the code is not structured or written particularly elegantly.
-I initially took a scripting approach, with the scripts operating in order. [Main.py](Main.py) wraps all these scripts and runs them together (see [Running Locally](#running-locally))
+I initially took a scripting approach, with the scripts operating in order. The scripts live in [src/](src/), and [src/main.py](src/main.py) wraps them and runs them together (see [Running Locally](#running-locally)). File paths are centralised in [src/utils/data_loading.py](src/utils/data_loading.py): raw inputs in `data/raw/` (read-only), derived outputs in `data/processed/`. Tests are in [tests/](tests/).
 
 #### 1. Scrape Tracklist data from 1001 tracklist
-The file [scrape_live_1001tracklist_data.py](scrape_live_1001tracklist_data.py) extracts the data from 1001 Tracklists.
+The file [src/data_crawlers/scrape_live_1001tracklist_data.py](src/data_crawlers/scrape_live_1001tracklist_data.py) extracts the data from 1001 Tracklists.
 To do so, I found an index page for Boiler Room sets on 1001 Tracklist. The function `get_urls_for_boiler_rooms` extacts each of these sets and their URL. The object `OneThousandOneTrackListPage` and its methods contain the behaviour for extracting the traclist.
 
 #### 2. Clean Data and perform Fuzzy Mutching
-The [clean data script](clean_br_data.py) is not particularly elegant, and performs a few functions:
-- It performs some initial string cleaning and processing - fixing encoding errors, removing punctuation and words like Edit/Remix/Bootleg, and so on.
-- It also splits out all the artists/remixers etc. for a song. In the final analysis, all artists involved in a track being played (the DJ, the Artist(s), the Remixer(s)) will have an edge drawn between them. Doing this also aids in string cleaning
-- It then takes all the unique Artists (no matter what their envolvment) and performs a fuzzy matching exercise on all artists to all other artists. Any artist pairs with more than an 80% string similarity are merged together
+The [clean data script](src/clean_br_data.py) performs a few functions:
+- It performs some initial string cleaning and processing - fixing known encoding errors, removing words like Edit/Remix/Bootleg, and turning unknown placeholders (`ID`, `?`, blanks) and generic remix leftovers (`Original`, `Extended`, ...) into nulls.
+- It also splits out all the artists/remixers/B2B DJs for a song (on `&`, `and`, `x`, `b2b`), except for names listed in [src/resources/no_split_names.txt](src/resources/no_split_names.txt). In the final analysis, the DJ, the Artist(s) and the Remixer(s) of each track played are connected by typed edges. Doing this also aids in string cleaning
+- It then takes all the unique Artists (no matter what their envolvment) and scores every pair for (case-insensitive) string similarity. Pairs with more than 80% similarity are linked, linked names are grouped into clusters, and each cluster is replaced by its most frequent spelling. Manual corrections go in [src/resources/artist_merge_overrides.json](src/resources/artist_merge_overrides.json) (`never` / `always` merge a pair)
 
 I took the fuzzy matching approach to amend some of the data quality issues found in the 1001 tracklist data. Fuzzy matching is often not very precise (hence the name): setting the threshold too low will lead to completely different artists being merged together; setting it too high will limit the number of merges for artists that should be merged. In other words, you must trade off false-positives and false-negatives.
 In this context, over-merging artists is a greater risk. This could lead to additional "bridge" connections between communities in the graph, or incorrect artists being placed into communities, which would make communitiy detection more difficult, less precise, and less accurate.
@@ -45,9 +45,10 @@ I performed a brief analysis of the number/proportion of artists caught by the 8
 #### 3. Retrieve Genre data from Spotify and Discogs
 Both of these services have APIs for searching for tracks and retrieving data on those results. Both also have python packages for retrieving this data, which I have used: [Spotipy](https://github.com/spotipy-dev/spotipy) and [Discogs client](https://github.com/joalla/discogs_client). The documentation for these projects was easy enough to use.
 Note that as said above, the data quality is limited, both by the data quality upstream from 1001 Tracklists, and from these sources themselves.
+The [genre script](src/genre_download_script.py) searches each unique (artist, track) pair once and saves results to JSON caches in `data/processed/`, so an interrupted run resumes where it stopped. It has unit tests with mocked clients but has not been run against the live APIs since these changes.
 
 #### 4. Graph Aanlytics
-I've used NetworkX for identifying the Louvain communities within the graph, and Graphistry for visualisation. In my experiences, graphistry can visualise large graphs better than most python specific graph analytics packages, although the aesthetic of Graphistry can be underwhelming. In the future, I want to attempt the viualisation again with Neo4J. 
+The graph has one node per artist name and four typed, weighted edge types: `played` (DJ → artist/remixer), `remixed` (remixer → artist), `collab` and `b2b` (see [docs/graph_schema.md](docs/graph_schema.md)). I've used NetworkX for identifying the Louvain communities within the graph (weighted, seeded with `SEED` from [src/config.py](src/config.py)), and Graphistry for visualisation. In my experiences, graphistry can visualise large graphs better than most python specific graph analytics packages, although the aesthetic of Graphistry can be underwhelming. In the future, I want to attempt the viualisation again with Neo4J. 
 
 ## TODO List
 0. Set up Claude Code to improve speed of development
@@ -57,13 +58,11 @@ I've used NetworkX for identifying the Louvain communities within the graph, and
 2. Change front end to sleek, Django/website ready visualisation
 3. Greatly improve ability to graph / resources required
 4. Develop GraphRAG solution
-5. Change edges to contain meaning (artist played this persons song)
-  - Update graph_schema accordingly
+5. ~~Change edges to contain meaning (artist played this persons song)~~ Done: edges are typed (`played`, `remixed`, `collab`, `b2b`) and weighted; see docs/graph_schema.md
 6. Improve data principles: sets should have IDs, artists should have ID, etc.
 7. Consider using a local LLM or Claude LLM calls to merge artists
-8. Finish the genre search, including two bugs
-  - ArtistIDs can be None - code will loop over it
-  - Spotify returns anything other than 400, test_search is never set and the code fails
+8. Finish the genre search (the two known bugs — `None` ArtistIDs and non-400 Spotify errors — are fixed; still needs a live run, and genres still need to reach the graph: Known Issue 14)
+9. Capture featured artists (`feat.` / `ft.`) as track metadata (e.g. a `FeaturedArtist` column per track) instead of treating them as remixers, and decide how they appear in the graph (Known Issue 16)
 
 Old:
 - When internet is better take a screenshot of graph for README
@@ -79,34 +78,46 @@ Old:
 ## Running Locally
 You will need your own Graphistry account set up, with details saved in a .env. Similarly, for Discogs and Spotify's APIs, you will need to set up authorisation and save those in a .env.
 
-Clone the repository and run
+The project uses [uv](https://docs.astral.sh/uv/). Clone the repository and run
 ```
-pip install requirements.txt
-python main.py
+uv sync
+uv run python -m src.main
 ```
+Individual stages can be run the same way, e.g. `uv run python -m src.clean_br_data` or `uv run python -m src.network_analytics`. Run the tests with `uv run pytest`.
 
 ## Known Issues
-See [docs/graph_schema.md](docs/graph_schema.md) for how these affect the graph.
+See [docs/graph_schema.md](docs/graph_schema.md) for how these affect the graph. Numbers are kept stable because tests and docs refer to them.
 
-**Data cleaning ([clean_br_data.py](clean_br_data.py))**
-1. **Empty-string hub node:** `?` and `ID`/`Id` are replaced with `""` rather than NaN, so they survive `dropna` and every unknown artist collapses into a single `""` node.
-2. **Missing comma in the mojibake fix list:** `("Ã‚me" "Ame")` is a single string, not a tuple, so the loop replaces every `"Ã"` with `"‚"`, corrupting names and breaking the fixes that follow it.
-3. **B2B split regex:** the escaped pipe in `\sand\s\|\sAnd\s` means DJs joined by `" and "` / `" And "` are never split and remain a single node.
-4. **Fuzzy merging is single-pass and non-transitive:** A→B and B→C do not chain to A→C, and genuinely distinct artists with a similarity ratio > 80 are merged.
-5. **`clean_data` relies on a global `raw_df`:** the regression check inside `clean_data` reads `raw_df`, which only exists when `clean_br_data.py` is run directly. Calling `clean_data()` from `main.py` raises a `NameError`.
+**Open**
 
-**Graph analytics ([network_analytics.py](network_analytics.py), [main.py](main.py))**
+- **14. Genre data never reaches the graph** (deferred): the aggregated edges carry no track details, and `network_analytics.py` reads the pre-enrichment parquet, so the Spotify/Discogs columns are unused.
+- **16. Featured artists are recorded as remixers:** a track name like `Track (feat. X)` puts `feat. X` into `RemixOrEdit`, so the featured artist becomes a remixer node (with "feat." in the name) and gets `remixed` edges rather than `collab` edges. See TODO 9.
+- **17. Genre script not verified against the live APIs:** the genre-retrieval fixes are covered by unit tests with mocked Spotify/Discogs clients only. In particular, Discogs matching reads `artists_sort` on each search result, which may trigger an extra request per result and be slow under the ~60 requests/minute limit.
+- **18. Inter-community edges are not visually distinguished:** `IsInterCommunity` is computed, but the Graphistry encoding still colours edges by the source node's community.
+- **19. Stale data dictionary counts:** the figures in [docs/data_dictionary.md](docs/data_dictionary.md) predate the cleaning fixes; re-run cleaning and refresh them.
 
-6. **Edge community is arbitrary for inter-community edges:** it is overwritten by whichever endpoint's community is iterated last.
-7. **Louvain is unseeded:** communities are not reproducible between runs.
-8. **Graph is undirected and unweighted:** parallel edges collapse in `nx.Graph`, so playing an artist 50 times counts the same as once, and edge meaning (collab / played / remixed / B2B) is not recorded.
-9. `create_edglist` is annotated `-> pd.DataFrame` but returns a tuple `(df_of_edges, df_of_nodes)`.
+**Fixed (2026-11-20)**
 
-**Genre retrieval ([genre_download_script.py](genre_download_script.py))**
+*Data cleaning ([src/clean_br_data.py](src/clean_br_data.py))*
 
-10. **Match thresholds are effectively disabled:** `fuzz.ratio` returns 0–100 but the threshold is `> 0.6`, so almost any Spotify/Discogs search result is accepted as a match.
-11. **`ArtistIDs` can be `None`:** `spotify_get_artist_genres_from_ID` then iterates over it and raises a `TypeError`.
-12. **Non-400 `SpotifyException`:** `test_search` is never assigned and the code fails with an `UnboundLocalError`.
-13. **`DiscogsTrackID` is misnamed:** it holds Discogs release genres, not an ID.
-14. **Genre data never reaches the graph:** `create_edglist` copies only a fixed set of columns onto edges, and `network_analytics.py` reads the pre-enrichment parquet, so only the scraped `Genre` column is used.
+1. **Empty-string hub node:** whole-cell `?`, `ID`/`Id`/`id` and blanks now become NaN, so they never form a node.
+2. **Missing comma in the mojibake fix list:** `("Ã‚me" "Ame")` was a single string, so every `"Ã"` became `"‚"`. Fixed; the list is a tested constant.
+3. **B2B split regex:** the escaped pipe meant `" and "` never split. Names now split on `&`, `and`, `x`, `b2b` (case-insensitive), with a do-not-split list for real names.
+4. **Fuzzy merging was single-pass and non-transitive:** now clusters linked names (connected components) and uses the most frequent spelling, with `never`/`always` overrides.
+5. **`clean_data` relied on a global `raw_df`** (and mutated its input): now works on a copy and snapshots the input itself.
+15. **Generic remix words became remixer nodes:** leftovers like `Original`, `Extended`, `Radio`, `Club` in `RemixOrEdit` are now NaN (`GENERIC_REMIX_PATTERN`).
+
+*Graph analytics ([src/network_analytics.py](src/network_analytics.py), [src/main.py](src/main.py))*
+
+6. **Edge community was arbitrary for inter-community edges:** edges now get `CommunitySource`, `CommunityTarget` and `IsInterCommunity`; `LouvainCommunity` on an edge is always the source's.
+7. **Louvain was unseeded:** now uses `SEED` from [src/config.py](src/config.py).
+8. **Graph was undirected and unweighted:** edges are now typed (`played`, `remixed`, `collab`, `b2b`), directed where meaningful, and weighted by play count.
+9. **`create_edglist` return annotation:** now `-> tuple[pd.DataFrame, pd.DataFrame]`.
+
+*Genre retrieval ([src/genre_download_script.py](src/genre_download_script.py))*
+
+10. **Match thresholds were effectively disabled:** now a single `MATCH_THRESHOLD = 60` on the 0–100 scale.
+11. **`ArtistIDs` could be `None`:** handled; genres are fetched in batches and cached per artist.
+12. **Non-400 `SpotifyException` left `test_search` unbound:** now logged and returns `None`.
+13. **`DiscogsTrackID` was misnamed:** renamed `DiscogsGenres`.
 

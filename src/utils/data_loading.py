@@ -34,11 +34,6 @@ class RawDataPaths:
         """Output of the livetracklist crawler."""
         return self.dir / "live_tracklist_set_lists.csv"
 
-    @property
-    def cleaned_boiler_room_data_parquet(self) -> Path:
-        """Cleaned data (parquet); input to genre download and network analytics."""
-        return self.dir / "cleaned_boiler_room_data.parquet"
-
 
 @dataclass(frozen=True)
 class ProcessedDataPaths:
@@ -50,6 +45,11 @@ class ProcessedDataPaths:
     def cleaned_boiler_room_data_csv(self) -> Path:
         """Cleaned data (csv)."""
         return self.dir / "cleaned_boiler_room_data.csv"
+
+    @property
+    def cleaned_boiler_room_data_parquet(self) -> Path:
+        """Cleaned data (parquet); input to genre download and network analytics."""
+        return self.dir / "cleaned_boiler_room_data.parquet"
 
     @property
     def cleaned_boiler_room_data_with_genre(self) -> Path:
@@ -66,6 +66,37 @@ class ProcessedDataPaths:
         """Artist pairs with string similarity > 65, for manual review."""
         return self.dir / "FuzzyMatching.csv"
 
+    @property
+    def spotify_search_cache(self) -> Path:
+        """Checkpoint of Spotify track searches: (artist, track) -> artist IDs or null."""
+        return self.dir / "spotify_search_cache.json"
+
+    @property
+    def spotify_artist_genres_cache(self) -> Path:
+        """Checkpoint of Spotify artist lookups: artist ID -> genres."""
+        return self.dir / "spotify_artist_genres_cache.json"
+
+    @property
+    def discogs_search_cache(self) -> Path:
+        """Checkpoint of Discogs release searches: (artist, track) -> genres or null."""
+        return self.dir / "discogs_search_cache.json"
+
+
+@dataclass(frozen=True)
+class ResourcePaths:
+    """Hand-maintained, version-controlled inputs in ``src/resources/``."""
+
+    dir: Path
+
+    @property
+    def no_split_names(self) -> Path:
+        """Names containing '&', 'and', 'x' or 'B2B' that must not be split (one per line)."""
+        return self.dir / "no_split_names.txt"
+
+    @property
+    def artist_merge_overrides(self) -> Path:
+        """Fuzzy-merge overrides: {"never": [[a, b], ...], "always": [[a, b], ...]}."""
+        return self.dir / "artist_merge_overrides.json"
 
 
 @dataclass(frozen=True)
@@ -121,6 +152,10 @@ class ProjectPaths:
     @property
     def processed(self) -> ProcessedDataPaths:
         return ProcessedDataPaths(dir=self.data_dir / "processed")
+
+    @property
+    def resources(self) -> ResourcePaths:
+        return ResourcePaths(dir=self.root / "src" / "resources")
 
     @property
     def scraper_cache(self) -> ScraperCachePaths:

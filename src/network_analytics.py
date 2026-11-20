@@ -1,9 +1,12 @@
 import os
-import pandas as pd
+import re
+
 import graphistry
 import networkx as nx
+import pandas as pd
 from dotenv import load_dotenv
 
+from src.config import SEED
 from src.utils.data_loading import PATHS
 
 # Reading for community detection
@@ -11,69 +14,159 @@ from src.utils.data_loading import PATHS
 # TODO - refactor with Leiden algo rather than Louvain - https://github.com/esclear/louvain-leiden/blob/main/community_detection/leiden.py
 
 # TODO look into using cuDF instead if speed becomes a barrier
-load_dotenv(PATHS.env_file)
-graphistry.register(api=3,
-                    server='hub.graphistry.com',
-                    username=os.getenv("GRAPHISTRY_USERNAME"),
-                    password=os.getenv("GRAPHISTRY_PASSWORD"))
+
+# Edge types: (source column prefix, target column prefix, edge type, directed)
+EDGE_RELATIONS = [
+    ("DJ", "Artist", "played", True),
+    ("DJ", "RemixOrEdit", "played", True),
+    ("RemixOrEdit", "Artist", "remixed", True),
+    ("Artist", "Artist", "collab", False),
+    ("DJ", "DJ", "b2b", False),
+]
+UNDIRECTED_EDGE_TYPES = {edge_type for *_, edge_type, directed in EDGE_RELATIONS if not directed}
+TRACK_DETAIL_COLS = ["DJ", "Artist", "TrackName", "Genre", "RemixOrEdit", "Date"]
 
 
-def create_edglist(df: pd.DataFrame, artist_cols: pd.Index) -> pd.DataFrame:
-    # Create a list of edges which are artist to artist.
-    list_of_edges = []  # Format - start - finish - DJ - artist - track name - genre
-    for index, col in enumerate(artist_cols):
-        if not index == len(artist_cols):
-            for second_col in artist_cols[index+1:]:
-                # this isnt great code to read, but basically:
-                # store a df that is the Node 1 (col), Node 2 (second col), and all the track details
-                # drop any edges where either side is null.
-                sub_df = df[[col, second_col, "DJ", "Artist", "TrackName", "Genre", "RemixOrEdit", "Date"]].dropna(
-                        subset=[col, second_col], how="any"
-                        ).copy()
+def register_graphistry() -> None:
+    load_dotenv(PATHS.env_file)
+    graphistry.register(
+        api=3,
+        server="hub.graphistry.com",
+        username=os.getenv("GRAPHISTRY_USERNAME"),
+        password=os.getenv("GRAPHISTRY_PASSWORD"),
+    )
 
-                sub_df = sub_df.rename(
-                        columns={col: "Node1", second_col: "Node2"}  # rename cols
-                    )
-                if not sub_df.empty:
-                    list_of_edges.append(sub_df)
 
-    # empty series warning indicated there were empty series in the list of edges - now remove above
-    df_of_edges = pd.concat(list_of_edges).reset_index()
-    df_of_nodes = pd.DataFrame(pd.unique(pd.concat([df_of_edges["Node1"], df_of_edges["Node2"]], axis=0)), columns=["Node"])
+def _names_long(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
+    """Long table of (RowID, Name) for the numbered columns prefix0, prefix1, ..."""
+    cols = [col for col in df.columns if re.fullmatch(rf"{prefix}\d+", col)]
+    if not cols:
+        return pd.DataFrame(columns=["RowID", "Name"])
+    long = df[cols].rename_axis("RowID").reset_index().melt(id_vars="RowID", value_name="Name")
+    return long.dropna(subset=["Name"])[["RowID", "Name"]]
 
-    return df_of_edges, df_of_nodes
+
+def build_play_edges(df: pd.DataFrame) -> pd.DataFrame:
+    """One typed edge per track row and relation (a multigraph edge list).
+
+    Columns: Source, Target, EdgeType, RowID, plus the track details. Self-loops (e.g. a DJ
+    playing their own track) are dropped. Undirected types (collab, b2b) are stored once,
+    with Source < Target.
+    """
+    df = df.reset_index(drop=True)
+    detail_cols = [col for col in TRACK_DETAIL_COLS if col in df.columns]
+    names = {prefix: _names_long(df, prefix) for prefix in ("DJ", "Artist", "RemixOrEdit")}
+
+    edge_frames = []
+    for source_prefix, target_prefix, edge_type, directed in EDGE_RELATIONS:
+        edges = names[source_prefix].merge(
+            names[target_prefix], on="RowID", suffixes=("Source", "Target")
+        )
+        edges = edges.rename(columns={"NameSource": "Source", "NameTarget": "Target"})
+        edges = edges.loc[edges["Source"] != edges["Target"]]
+        if not directed:
+            edges = edges.loc[edges["Source"] < edges["Target"]]
+        edges = edges.assign(EdgeType=edge_type)
+        edge_frames.append(edges[["Source", "Target", "EdgeType", "RowID"]])
+
+    play_edges = pd.concat(edge_frames, ignore_index=True)
+    play_edges = play_edges.merge(df[detail_cols], left_on="RowID", right_index=True, how="left")
+    return play_edges
+
+
+def aggregate_edges(play_edges: pd.DataFrame) -> pd.DataFrame:
+    """Collapse parallel edges: one row per (Source, Target, EdgeType) with Weight = play count."""
+    return (
+        play_edges.groupby(["Source", "Target", "EdgeType"], as_index=False)
+        .size()
+        .rename(columns={"size": "Weight"})
+    )
+
+
+def to_weighted_digraph(edges: pd.DataFrame) -> nx.DiGraph:
+    """Weighted DiGraph for community detection: weights summed across edge types, and
+    undirected types (collab, b2b) added in both directions."""
+    reverse = edges.loc[edges["EdgeType"].isin(UNDIRECTED_EDGE_TYPES)].rename(
+        columns={"Source": "Target", "Target": "Source"}
+    )
+    both = pd.concat([edges, reverse])
+    summed = both.groupby(["Source", "Target"], as_index=False)["Weight"].sum()
+    return nx.from_pandas_edgelist(
+        summed, "Source", "Target", edge_attr="Weight", create_using=nx.DiGraph
+    )
+
+
+def to_multidigraph(edges: pd.DataFrame) -> nx.MultiDiGraph:
+    """Typed multigraph: one edge per (Source, Target, EdgeType), keyed by EdgeType."""
+    return nx.from_pandas_edgelist(
+        edges,
+        "Source",
+        "Target",
+        edge_attr=["EdgeType", "Weight"],
+        edge_key="EdgeType",
+        create_using=nx.MultiDiGraph,
+    )
+
+
+def create_edglist(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Typed, weighted edges (one row per Source, Target, EdgeType) and the node list."""
+    edges = aggregate_edges(build_play_edges(df))
+    nodes = pd.DataFrame({"Node": pd.unique(pd.concat([edges["Source"], edges["Target"]]))})
+    return edges, nodes
+
+
+def assign_communities(
+    edges: pd.DataFrame, nodes: pd.DataFrame, seed: int = SEED
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Seeded weighted Louvain. Communities are numbered by size (0 = largest).
+
+    Nodes get LouvainCommunity and CommunitySize. Edges get CommunitySource, CommunityTarget,
+    IsInterCommunity, and LouvainCommunity/CommunitySize taken from the source node.
+    """
+    communities = nx.community.louvain_communities(
+        to_weighted_digraph(edges), weight="Weight", seed=seed
+    )
+    communities = sorted(communities, key=lambda c: (-len(c), min(c)))
+    community_of = {node: i for i, members in enumerate(communities) for node in members}
+    size_of = {i: len(members) for i, members in enumerate(communities)}
+
+    nodes = nodes.assign(LouvainCommunity=nodes["Node"].map(community_of))
+    nodes = nodes.assign(CommunitySize=nodes["LouvainCommunity"].map(size_of))
+
+    edges = edges.assign(
+        CommunitySource=edges["Source"].map(community_of),
+        CommunityTarget=edges["Target"].map(community_of),
+    )
+    edges = edges.assign(
+        IsInterCommunity=edges["CommunitySource"] != edges["CommunityTarget"],
+        LouvainCommunity=edges["CommunitySource"],
+        CommunitySize=edges["CommunitySource"].map(size_of),
+    )
+    return edges, nodes
 
 
 if __name__ == "__main__":
     # df = pd.read_csv(PATHS.processed.cleaned_boiler_room_data_csv, encoding="utf-8")
-    df = pd.read_parquet(PATHS.raw.cleaned_boiler_room_data_parquet)
-    artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)").columns
+    df = pd.read_parquet(PATHS.processed.cleaned_boiler_room_data_parquet)
+    df_of_edges, df_of_nodes = create_edglist(df=df)
+    df_of_edges, df_of_nodes = assign_communities(df_of_edges, df_of_nodes)
 
-    df_of_edges, df_of_nodes = create_edglist(df=df, artist_cols=artist_cols)
-
-    # calculate communities using louvain algorithm and networx package
-    g_nx = nx.from_pandas_edgelist(df=df_of_edges, source="Node1", target="Node2") 
-    communities = nx.community.louvain_communities(g_nx)
-
-    for index, community in enumerate(communities):
-        # note most elegant but fastest way write the code to assign communities
-        for node in community:
-            df_of_nodes.loc[df_of_nodes["Node"] == node, "LouvainCommunity"] = index
-            df_of_nodes.loc[df_of_nodes["Node"] == node, "CommunitySize"] = len(community)
-
-            df_of_edges.loc[(df_of_edges["Node1"] == node) | (df_of_edges["Node2"] == node), ["LouvainCommunity", "CommunitySize"]] = (index, len(community))
-
-    df_of_edges = df_of_edges.loc[df_of_edges["CommunitySize"] > 15, :]  # remove to try get graph to load
-    df_of_nodes = df_of_nodes.loc[df_of_nodes["CommunitySize"] > 15, :]  # remove to try get graph to load
-    print(df_of_edges)
-    print(df_of_nodes)
-    print(df_of_edges.loc[df_of_edges["Genre"].notna(), "Genre"].value_counts())
+    # Only keep communities with > 15 members, to try get graph to load
+    df_of_nodes = df_of_nodes.loc[df_of_nodes["CommunitySize"] > 15, :]
+    kept = set(df_of_nodes["Node"])
+    df_of_edges = df_of_edges.loc[
+        df_of_edges["Source"].isin(kept) & df_of_edges["Target"].isin(kept), :
+    ]
+    print(df_of_edges.shape, df_of_nodes.shape)
+    print(df_of_edges.head())
+    print(df_of_edges["EdgeType"].value_counts())
 
     # TODO - Natural language processing of genres for each community
-    
+
+    register_graphistry()
     colour_pallete = ['black', '#fdae6b', '#fee6ce']
     # Graph analytics with graphistry
-    g = graphistry.edges(df_of_edges, "Node1", "Node2")\
+    g = graphistry.edges(df_of_edges, "Source", "Target")\
                   .nodes(df_of_nodes, "Node")\
                   .encode_point_color("LouvainCommunity",  palette=colour_pallete, as_continuous=True)\
                   .encode_edge_color("LouvainCommunity", palette=colour_pallete, as_continuous=True)\

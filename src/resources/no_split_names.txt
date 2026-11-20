@@ -1,0 +1,15 @@
+# Artist names containing "&", "and", "x" or "B2B" that must NOT be split into separate artists.
+# One name per line, matched case-insensitively. Lines starting with "#" are ignored.
+# Names followed by "the" (e.g. "Kool & The Gang") are already protected by the split regex.
+Above & Beyond
+Chase & Status
+Axwell & Ingrosso
+Dimitri Vegas & Like Mike
+Kraak & Smaak
+Sly & Robbie
+Sam & Dave
+Ashford & Simpson
+Womack & Womack
+Simon & Garfunkel
+Earth, Wind & Fire
+Malcolm X

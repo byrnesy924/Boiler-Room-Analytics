@@ -1,10 +1,7 @@
-import os
-import pandas as pd
 import logging
-import graphistry
-import networkx as nx
 
-from dotenv import load_dotenv
+import graphistry
+import pandas as pd
 
 from src.clean_br_data import clean_data
 from src.data_crawlers.scrape_live_1001tracklist_data import (
@@ -12,9 +9,7 @@ from src.data_crawlers.scrape_live_1001tracklist_data import (
     multiprocessing_wrapper,
 )
 from src.genre_download_script import discogs_functional_flow, spotify_functional_flow
-from src.network_analytics import create_edglist
-from src.utils.data_loading import PATHS
-
+from src.network_analytics import assign_communities, create_edglist, register_graphistry
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='main.log', level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s', filemode="w")
@@ -22,13 +17,8 @@ logging.basicConfig(filename='main.log', level=logging.WARNING, format='%(asctim
 # Reading for community detection
 # https://arxiv.org/html/2309.11798v4; https://www.nature.com/articles/s41598-019-41695-z;
 
-load_dotenv(PATHS.env_file)
-graphistry.register(api=3,
-                    server='hub.graphistry.com',
-                    username=os.getenv("GRAPHISTRY_USERNAME"),
-                    password=os.getenv("GRAPHISTRY_PASSWORD"))
-
 if __name__ == "__main__":
+    register_graphistry()
     # Hack - 1001 tracklists gives 404 on get requests, imitate a browser with the following headers
     headers = {
         "authority": "www.1001tracklists.com",
@@ -69,30 +59,18 @@ if __name__ == "__main__":
     df = spotify_functional_flow(df=df)
 
     # Graph Analytics
-    artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)").columns
-    df_of_edges, df_of_nodes = create_edglist(df=df, artist_cols=artist_cols)
+    df_of_edges, df_of_nodes = create_edglist(df=df)
+    df_of_edges, df_of_nodes = assign_communities(df_of_edges, df_of_nodes)
 
-    # calculate communities using louvain algorithm and networx package
-    g_nx = nx.from_pandas_edgelist(df=df_of_edges, source="Node1", target="Node2") 
-    communities = nx.community.louvain_communities(g_nx)
-
-    for index, community in enumerate(communities):
-        # note most elegant but fastest way to assign communities
-        for node in community:
-            df_of_nodes.loc[df_of_nodes["Node"] == node, "Louvain_Community"] = index
-            df_of_nodes.loc[df_of_nodes["Node"] == node, "Community_size"] = len(community)
-
-            df_of_edges.loc[(df_of_edges["Node1"] == node) | (df_of_edges["Node2"] == node), "Louvain_Community"] = index
-
-    # TODO - Natural language processing of genres for each community 
+    # TODO - Natural language processing of genres for each community
 
     colour_pallete = ['black', '#fdae6b', '#fee6ce']
     # Graph analytics with graphistry
-    g = graphistry.edges(df_of_edges, "Node1", "Node2")\
+    g = graphistry.edges(df_of_edges, "Source", "Target")\
                   .nodes(df_of_nodes, "Node")\
-                  .encode_point_color("Louvain_Community",  palette=colour_pallete, as_continuous=True)\
-                  .encode_edge_color('Louvain_Community', palette=colour_pallete, as_continuous=True)\
-                  .encode_point_icon("Louvain_Community")\
+                  .encode_point_color("LouvainCommunity",  palette=colour_pallete, as_continuous=True)\
+                  .encode_edge_color("LouvainCommunity", palette=colour_pallete, as_continuous=True)\
+                  .encode_point_icon("LouvainCommunity")\
                   .scene_settings(menu=False, info=False, show_arrows=False, point_size=0.7, edge_curvature=0.0, edge_opacity=0.5, point_opacity=0.9)\
                   .addStyle(bg={"color": 'white'})
 

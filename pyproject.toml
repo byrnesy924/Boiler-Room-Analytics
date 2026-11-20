@@ -21,6 +21,7 @@ dev = ["pytest>=8", "ruff>=0.6"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-x -q --tb=short --no-header -p no:cacheprovider"  # short output = fewer tokens
 
 [tool.ruff]
