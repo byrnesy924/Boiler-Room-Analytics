@@ -1,0 +1,33 @@
+[project]
+name = "boiler-room-analytics"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4",
+    "graphistry",
+    "matplotlib",
+    "networkx",
+    "numpy",
+    "pandas",
+    "python-dotenv",
+    "python3-discogs-client",
+    "rapidfuzz",
+    "requests",
+    "spotipy",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-x -q --tb=short --no-header -p no:cacheprovider"  # short output = fewer tokens
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+output-format = "concise"  # one line per issue
+extend-exclude = ["Data", "data", "1001_tracklist_htmls", "Images", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "NPY", "PD"]  # pycodestyle, pyflakes, imports, bugbear, pyupgrade, numpy/pandas rules

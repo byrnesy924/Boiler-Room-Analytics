@@ -6,10 +6,14 @@ import networkx as nx
 
 from dotenv import load_dotenv
 
-from scrape_live_1001tracklist_data import get_urls_for_boiler_rooms, multiprocessing_wrapper
-from clean_br_data import clean_data
-from genre_download_script import spotify_functional_flow, discogs_functional_flow
-from network_analytics import create_edglist
+from src.clean_br_data import clean_data
+from src.data_crawlers.scrape_live_1001tracklist_data import (
+    get_urls_for_boiler_rooms,
+    multiprocessing_wrapper,
+)
+from src.genre_download_script import discogs_functional_flow, spotify_functional_flow
+from src.network_analytics import create_edglist
+from src.utils.data_loading import PATHS
 
 
 logger = logging.getLogger(__name__)
@@ -18,7 +22,7 @@ logging.basicConfig(filename='main.log', level=logging.WARNING, format='%(asctim
 # Reading for community detection
 # https://arxiv.org/html/2309.11798v4; https://www.nature.com/articles/s41598-019-41695-z;
 
-load_dotenv(".env")
+load_dotenv(PATHS.env_file)
 graphistry.register(api=3,
                     server='hub.graphistry.com',
                     username=os.getenv("GRAPHISTRY_USERNAME"),

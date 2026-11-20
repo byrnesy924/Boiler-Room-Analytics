@@ -49,7 +49,23 @@ Note that as said above, the data quality is limited, both by the data quality u
 #### 4. Graph Aanlytics
 I've used NetworkX for identifying the Louvain communities within the graph, and Graphistry for visualisation. In my experiences, graphistry can visualise large graphs better than most python specific graph analytics packages, although the aesthetic of Graphistry can be underwhelming. In the future, I want to attempt the viualisation again with Neo4J. 
 
-## ToDo List
+## TODO List
+0. Set up Claude Code to improve speed of development
+1. Create AWS Infrastructure to improve crawler and access to data
+  - Add Mixmag crawler
+  - Add Hoer crawler etc.
+2. Change front end to sleek, Django/website ready visualisation
+3. Greatly improve ability to graph / resources required
+4. Develop GraphRAG solution
+5. Change edges to contain meaning (artist played this persons song)
+  - Update graph_schema accordingly
+6. Improve data principles: sets should have IDs, artists should have ID, etc.
+7. Consider using a local LLM or Claude LLM calls to merge artists
+8. Finish the genre search, including two bugs
+  - ArtistIDs can be None - code will loop over it
+  - Spotify returns anything other than 400, test_search is never set and the code fails
+
+Old:
 - When internet is better take a screenshot of graph for README
 - Summarise findings and analysis, preferably after the genre data and NLP analysis
   - the aim is to mine out these communities and label them in a completely unsupervised manner
@@ -68,4 +84,29 @@ Clone the repository and run
 pip install requirements.txt
 python main.py
 ```
+
+## Known Issues
+See [docs/graph_schema.md](docs/graph_schema.md) for how these affect the graph.
+
+**Data cleaning ([clean_br_data.py](clean_br_data.py))**
+1. **Empty-string hub node:** `?` and `ID`/`Id` are replaced with `""` rather than NaN, so they survive `dropna` and every unknown artist collapses into a single `""` node.
+2. **Missing comma in the mojibake fix list:** `("Ã‚me" "Ame")` is a single string, not a tuple, so the loop replaces every `"Ã"` with `"‚"`, corrupting names and breaking the fixes that follow it.
+3. **B2B split regex:** the escaped pipe in `\sand\s\|\sAnd\s` means DJs joined by `" and "` / `" And "` are never split and remain a single node.
+4. **Fuzzy merging is single-pass and non-transitive:** A→B and B→C do not chain to A→C, and genuinely distinct artists with a similarity ratio > 80 are merged.
+5. **`clean_data` relies on a global `raw_df`:** the regression check inside `clean_data` reads `raw_df`, which only exists when `clean_br_data.py` is run directly. Calling `clean_data()` from `main.py` raises a `NameError`.
+
+**Graph analytics ([network_analytics.py](network_analytics.py), [main.py](main.py))**
+
+6. **Edge community is arbitrary for inter-community edges:** it is overwritten by whichever endpoint's community is iterated last.
+7. **Louvain is unseeded:** communities are not reproducible between runs.
+8. **Graph is undirected and unweighted:** parallel edges collapse in `nx.Graph`, so playing an artist 50 times counts the same as once, and edge meaning (collab / played / remixed / B2B) is not recorded.
+9. `create_edglist` is annotated `-> pd.DataFrame` but returns a tuple `(df_of_edges, df_of_nodes)`.
+
+**Genre retrieval ([genre_download_script.py](genre_download_script.py))**
+
+10. **Match thresholds are effectively disabled:** `fuzz.ratio` returns 0–100 but the threshold is `> 0.6`, so almost any Spotify/Discogs search result is accepted as a match.
+11. **`ArtistIDs` can be `None`:** `spotify_get_artist_genres_from_ID` then iterates over it and raises a `TypeError`.
+12. **Non-400 `SpotifyException`:** `test_search` is never assigned and the code fails with an `UnboundLocalError`.
+13. **`DiscogsTrackID` is misnamed:** it holds Discogs release genres, not an ID.
+14. **Genre data never reaches the graph:** `create_edglist` copies only a fixed set of columns onto edges, and `network_analytics.py` reads the pre-enrichment parquet, so only the scraped `Genre` column is used.
 

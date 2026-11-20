@@ -1,11 +1,13 @@
-import os
-import re
-import requests
-import pandas as pd
 import logging
+import re
 from multiprocessing import Pool
 from time import sleep
+
+import pandas as pd
+import requests
 from bs4 import BeautifulSoup
+
+from src.utils.data_loading import PATHS
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='scrape_live_1001tracklist_data.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode="w")
@@ -23,10 +25,10 @@ class OneThousandOneTrackListPage():
         self.url = url
         self.regex_clean_set_name = re.compile(r'\/|\||\#|\&|\(|\)|\"')
         self.storage_file = self.regex_clean_set_name.sub("", set_name)
-        self.file_location = "1001_tracklist_htmls/" + self.storage_file + ".html"
+        self.file_location = PATHS.scraper_cache.tracklist_html(self.storage_file)
 
         # 17 November - if found locally, then load locally, otherwise use response
-        if os.path.isfile(self.file_location):
+        if self.file_location.is_file():
             try:
                 with open(self.file_location, "r", errors="replace") as data:
                     html_text = data.read()
@@ -123,7 +125,7 @@ def get_urls_for_boiler_rooms(headers: str):
     else:
         # 1001 tracklists was not playing ball with requests - saved index manually
         logging.warning(f"Request failed! Request dump:{site_map_page_request}")
-        with open("1001Tracklist-BR-Index.html",  errors="replace") as index_page:
+        with open(PATHS.scraper_cache.boiler_room_index_html, errors="replace") as index_page:
             site_map_page_text = index_page.read()
 
     site_map_soup = BeautifulSoup(site_map_page_text, "html.parser")
@@ -191,4 +193,4 @@ if __name__ == "__main__":
     dfs = [multiprocessing_wrapper(set=br_set, headers=headers) for br_set in sets]
     df = pd.concat(dfs)
 
-    df.to_csv("1001_tracklist_set_lists.csv", index=False, encoding="utf-8")
+    df.to_csv(PATHS.raw.tracklist_1001_set_lists, index=False, encoding="utf-8")

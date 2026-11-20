@@ -163,3 +163,10 @@ cython_debug/
 
 # Raw data of HTMLs from 1001 tracklist
 1001_tracklist_htmls
+
+# Egg files
+src/boiler_room_analytics.egg-info
+
+# Local claude setup
+.claude/settings.local.json
+CLAUDE.local.md

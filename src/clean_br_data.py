@@ -4,12 +4,14 @@ import re
 from matplotlib import pyplot as plt
 from rapidfuzz import fuzz
 from time import perf_counter
+
+from src.utils.data_loading import PATHS
 # TODO - remove "Unreleased" from names and artists
 
 
 def identify_remix_or_edit(track_name):
     """Superseded by pandas str functions"""
-    regex_get_remix = re.compile("\(.*\)")
+    regex_get_remix = re.compile(r"\(.*\)")
     # regex_remove_edit = re.compile("remix|\(|\)|edit|Remix|Edit|bootleg|Bootleg")
     return regex_get_remix.findall(track_name)
 
@@ -59,7 +61,7 @@ def clean_data(df: pd.DataFrame, save_visualisation: bool = True) -> pd.DataFram
 
     df["RemixOrEdit"] = df["TrackName"].str.extract(r"\((.*?)\)", expand=False)
     df["RemixOrEdit"] = df["RemixOrEdit"].str.replace(
-        "(Remix)|(\()|(\))|(Edit)|(bootleg)|(Version)|(Vocal Mix)|(Mix)|(Instrumental Mix)|(Instrumental)|(Dub)",
+        r"(Remix)|(\()|(\))|(Edit)|(bootleg)|(Version)|(Vocal Mix)|(Mix)|(Instrumental Mix)|(Instrumental)|(Dub)",
         "",
         case=False,
         regex=True
@@ -75,10 +77,10 @@ def clean_data(df: pd.DataFrame, save_visualisation: bool = True) -> pd.DataFram
     for col in df:
         if col == "Number":
             continue
-        df[col] = df[col].str.replace("\?(?!ME)|(^ID$)|(^Id$)", "", regex=True)  # Replace all "?" and ID/Id except for ?ME, that's a legit artist
+        df[col] = df[col].str.replace(r"\?(?!ME)|(^ID$)|(^Id$)", "", regex=True)  # Replace all "?" and ID/Id except for ?ME, that's a legit artist
 
     print(regression_check_cleaning(df_start=raw_df, df_end=df))
-    df.to_csv(r"Data\\preprocessed_br_data.csv", encoding="utf-8")
+    df.to_csv(PATHS.processed.preprocessed_br_data, encoding="utf-8")
 
     # TODO
     artist_cols = df.filter(regex=r"(DJ\d+)|(RemixOrEdit\d+)|(Artist\d+)")
@@ -121,7 +123,7 @@ def clean_data(df: pd.DataFrame, save_visualisation: bool = True) -> pd.DataFram
     product_of_artists["StringSimilarity"].hist(ax=ax, bins=30)  # would be nice to show the threshold line
     plt.show()
     if save_visualisation:
-        fig.savefig(r"Images\histogram_of_similarity_values.png")
+        fig.savefig(PATHS.images.similarity_histogram)
 
     fig_tail, ax_tail = plt.subplots(figsize=(40, 40))
     ax.axvline(threshold, color='red', linestyle='--', linewidth=2)
@@ -132,9 +134,9 @@ def clean_data(df: pd.DataFrame, save_visualisation: bool = True) -> pd.DataFram
     product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, "StringSimilarity"].hist(ax=ax_tail, bins=30)  # would be nice to show the threshold line
     plt.show()
     if save_visualisation:
-        fig_tail.savefig(r"Images\tail_of_histogram.png")
+        fig_tail.savefig(PATHS.images.similarity_histogram_tail)
 
-    product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, :].to_csv(r"Data\\FuzzyMatching.csv")
+    product_of_artists.loc[product_of_artists["StringSimilarity"] > 65, :].to_csv(PATHS.processed.fuzzy_matching)
 
     # Then apply merges onto datasets
     final_df = df.copy()
@@ -149,13 +151,13 @@ def clean_data(df: pd.DataFrame, save_visualisation: bool = True) -> pd.DataFram
 
 
 if __name__ == "__main__":
-    df = pd.read_csv(r"Data\1001_tracklist_set_lists.csv")
+    df = pd.read_csv(PATHS.raw.tracklist_1001_set_lists)
     raw_df = df.copy()
 
     final_df = clean_data(raw_df, save_visualisation=True)
 
-    final_df.to_csv(r"Data\cleaned_boiler_room_data.csv", encoding="utf-8", index=False)
-    final_df.to_parquet(r"Data\cleaned_boiler_room_data.parquet", index=False)
+    final_df.to_csv(PATHS.processed.cleaned_boiler_room_data_csv, encoding="utf-8", index=False)
+    final_df.to_parquet(PATHS.raw.cleaned_boiler_room_data_parquet, index=False)
     # number of missing genres - whether it is worth getting these from the beatport API
     print(df.isnull().sum())
 
