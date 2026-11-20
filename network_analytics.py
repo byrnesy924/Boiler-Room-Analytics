@@ -54,15 +54,15 @@ if __name__ == "__main__":
     communities = nx.community.louvain_communities(g_nx)
 
     for index, community in enumerate(communities):
-        # note most elegant but fastest way to assign communities
+        # note most elegant but fastest way write the code to assign communities
         for node in community:
-            df_of_nodes.loc[df_of_nodes["Node"] == node, "Louvain_Community"] = index
-            df_of_nodes.loc[df_of_nodes["Node"] == node, "Community_size"] = len(community)
+            df_of_nodes.loc[df_of_nodes["Node"] == node, "LouvainCommunity"] = index
+            df_of_nodes.loc[df_of_nodes["Node"] == node, "CommunitySize"] = len(community)
 
-            df_of_edges.loc[(df_of_edges["Node1"] == node) | (df_of_edges["Node2"] == node), "Louvain_Community"] = index
+            df_of_edges.loc[(df_of_edges["Node1"] == node) | (df_of_edges["Node2"] == node), ["LouvainCommunity", "CommunitySize"]] = (index, len(community))
 
-    df_of_edges = df_of_edges.loc[["Community_size"] > 5, :]  # remove to try get graph to load
-    df_of_nodes = df_of_nodes.loc[["Community_size"] > 5, :]  # remove to try get graph to load
+    df_of_edges = df_of_edges.loc[df_of_edges["CommunitySize"] > 15, :]  # remove to try get graph to load
+    df_of_nodes = df_of_nodes.loc[df_of_nodes["CommunitySize"] > 15, :]  # remove to try get graph to load
     print(df_of_edges)
     print(df_of_nodes)
     print(df_of_edges.loc[df_of_edges["Genre"].notna(), "Genre"].value_counts())
@@ -73,12 +73,12 @@ if __name__ == "__main__":
     # Graph analytics with graphistry
     g = graphistry.edges(df_of_edges, "Node1", "Node2")\
                   .nodes(df_of_nodes, "Node")\
-                  .encode_point_color("Louvain_Community",  palette=colour_pallete, as_continuous=True)\
-                  .encode_edge_color('Louvain_Community', palette=colour_pallete, as_continuous=True)\
-                  .encode_point_icon("Louvain_Community")\
+                  .encode_point_color("LouvainCommunity",  palette=colour_pallete, as_continuous=True)\
+                  .encode_edge_color("LouvainCommunity", palette=colour_pallete, as_continuous=True)\
+                  .encode_point_icon("LouvainCommunity")\
                   .scene_settings(menu=False, info=False, show_arrows=False, point_size=0.7, edge_curvature=0.0, edge_opacity=0.5, point_opacity=0.9)\
-                  .addStyle(bg={"color": 'grey'})
-                  
+                  .addStyle(bg={"color": 'light grey'})
+
     url = g.plot()
     print(url)
 
